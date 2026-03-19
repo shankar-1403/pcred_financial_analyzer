@@ -2,17 +2,31 @@ import React, { useState, useRef } from 'react';
 import Header from '../layout/header';
 import axios from 'axios';
 import Breadcrumbs from '../components/Breadcrumbs';
-import {TextField,FormControl,Select,MenuItem, InputLabel} from '@mui/material';
+import {TextField,FormControl,Select,MenuItem, InputLabel,Modal, Box,CircularProgress } from '@mui/material';
 import { IconChevronDown,IconCirclePlus, IconTrash } from '@tabler/icons-react';
 import { motion as Motion,AnimatePresence } from 'motion/react';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { useNavigate } from 'react-router-dom';
+import { useSnackbar } from '../components/SnackbarContext';
+
+const style = {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    bgcolor: 'background.paper',
+    boxShadow: 24,
+    borderRadius:1,
+    p: 2,
+};
 
 function NewReport() {
     const formRef = useRef(null);
+    const { showSnackbar } = useSnackbar()
     const navigate = useNavigate();
+    const [open, setOpen] = useState(false);
     const [accordion, setAccordion] = useState([{ id: 1, open: true }]);
     const [loading, setLoading] = useState(false);
     const [fileName, setFileName] = useState("")
@@ -73,6 +87,7 @@ function NewReport() {
     const handleSubmit = async(e) => {
         e.preventDefault();
         setLoading(true);
+        setOpen(true);
         try{
             const user_name = localStorage.getItem("name")
             const formData = new FormData();
@@ -85,14 +100,16 @@ function NewReport() {
 
             const response = await axios.post("http://127.0.0.1:8000/api/reports/create-new",formData)
             if(response.data.status == 200){
-                navigate("/reports")
+                navigate("/reports");
+                showSnackbar(response.data.message,"success");
             }else{
-                console.log(response.data.message);
+                showSnackbar(response.data.message,"error");
             }
         }catch(error){
             console.log(error);
         } finally{
             setLoading(false);
+            setOpen(false);
         }
     }
 
@@ -219,6 +236,17 @@ function NewReport() {
                     </form>
                 </div>
             </div>
+            <Modal
+                open={open}
+                aria-labelledby="modal-modal-title"
+                aria-describedby="modal-modal-description"
+            >
+                <Box sx={style}>
+                    <div className="flex gap-4 items-center p-4">
+                        <CircularProgress size="2rem" color='#084b6f'/><p className='font-semibold text-2xl'>Fetching Details from Bank Statement..</p>
+                    </div>
+                </Box>
+            </Modal>
         </>
     )
 }

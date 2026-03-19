@@ -1,62 +1,20 @@
-"use client";
-
 import { IconMenuDeep, IconX } from "@tabler/icons-react";
-import { motion, AnimatePresence, useScroll, useMotionValueEvent,useTransform } from "motion/react";
-import React, { useRef, useState, useEffect } from "react";
+// eslint-disable-next-line no-unused-vars
+import { motion, AnimatePresence, useScroll, useMotionValueEvent } from "framer-motion";
+import React, { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {IconCaretDownFilled} from "@tabler/icons-react";
 import { cn } from "../lib/utils";
 
-interface NavChildItem {
-  name: string;
-  link: string;
-}
-
-interface NavItem {
-  name: string;
-  link?: string;          
-  children?: NavChildItem[];
-}
-
-
-interface NavbarProps {
-  children: React.ReactNode;
-  className?: string;
-}
-
-interface NavBodyProps {
-  children: React.ReactNode;
-  className?: string;
-  visible?: boolean;
-}
-
-interface MobileNavProps {
-  children: React.ReactNode;
-  className?: string;
-  visible?: boolean;
-}
-
-interface MobileNavHeaderProps {
-  children: React.ReactNode;
-  className?: string;
-}
-
-interface MobileNavMenuProps {
-  children: React.ReactNode;
-  className?: string;
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-export const Navbar = ({ children, className }: NavbarProps) => {
-  const ref = useRef<HTMLDivElement>(null);
+export const Navbar = ({ children, className }) => {
+  const ref = useRef(null);
   const { scrollY } = useScroll({
     target: ref,
     offset: ["start start", "end start"],
   });
-  const [visible, setVisible] = useState<boolean>(false);
+  const [visible, setVisible] = useState(false);
 
-  useMotionValueEvent(scrollY, "change", (latest: number) => {
+  useMotionValueEvent(scrollY, "change", (latest) => {
     if (latest > 100) {
       setVisible(true);
     } else {
@@ -72,7 +30,7 @@ export const Navbar = ({ children, className }: NavbarProps) => {
       {React.Children.map(children, (child) =>
         React.isValidElement(child)
           ? React.cloneElement(
-              child as React.ReactElement<{ visible?: boolean }>,
+              child,
               { visible },
             )
           : child,
@@ -81,7 +39,7 @@ export const Navbar = ({ children, className }: NavbarProps) => {
   );
 };
 
-export const NavBody = ({ children }: NavBodyProps) => {
+export const NavBody = ({ children }) => {
   return (
     <div className="relative flex-row items-center justify-between self-start mx-10 py-2 lg:flex">
       {children}
@@ -89,26 +47,12 @@ export const NavBody = ({ children }: NavBodyProps) => {
   );
 };
 
-export const NavItems = ({ items }: { items: NavItem[] }) => {
-  const [open, setOpen] = useState<number | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-  const { scrollY } = useScroll({
-    target: ref,
-    offset: ["start start", "end start"],
-  });
-  const [visible, setVisible] = useState<boolean>(false);
-
-  useMotionValueEvent(scrollY, "change", (latest: number) => {
-    if (latest > 100) {
-      setVisible(true);
-    } else {
-      setVisible(false);
-    }
-  });
+export const NavItems = ({ items }) => {
+  const [open, setOpen] = useState(null);
+ 
   return (
     <div className="relative hidden lg:flex items-center justify-start gap-8 -mt-1">
       {items.map((item, idx) => (
-        <>
         <div
           key={item.name}
           onMouseEnter={() => setOpen(idx)}
@@ -148,13 +92,12 @@ export const NavItems = ({ items }: { items: NavItem[] }) => {
             )}
           </AnimatePresence>
         </div>
-        </>
       ))}
     </div>
   );
 };
 
-export const MobileNav = ({ children, className }: MobileNavProps) => {
+export const MobileNav = ({ children, className }) => {
   return (
     <motion.div
       className={cn(`z-50 flex w-full top-2 md:top-5 flex-col items-center justify-between px-0 py-2 fixed lg:hidden `, className )}
@@ -166,16 +109,15 @@ export const MobileNav = ({ children, className }: MobileNavProps) => {
 
 export const MobileNavHeader = ({
   children,
-  className,
-}: MobileNavHeaderProps) => {
-  const ref = useRef<HTMLDivElement>(null);
+}) => {
+  const ref = useRef(null);
   const { scrollY } = useScroll({
     target: ref,
     offset: ["start start", "end start"],
   });
-  const [visible, setVisible] = useState<boolean>(false);
+  const [visible, setVisible] = useState(false);
 
-  useMotionValueEvent(scrollY, "change", (latest: number) => {
+  useMotionValueEvent(scrollY, "change", (latest) => {
     if (latest > 100) {
       setVisible(true);
     } else {
@@ -197,7 +139,7 @@ export const MobileNavMenu = ({
   children,
   className,
   isOpen,
-}: MobileNavMenuProps) => {
+}) => {
   return (
     <AnimatePresence>
       {isOpen && (
@@ -222,9 +164,6 @@ export const MobileNavMenu = ({
 export const MobileNavToggle = ({
   isOpen,
   onClick,
-}: {
-  isOpen: boolean;
-  onClick: () => void;
 }) => {
   return isOpen ? (
     <div className="px-6">

@@ -110,19 +110,7 @@ def _parse_col0(col0_raw):
 # ACCOUNT INFO EXTRACTION
 # ---------------------------------
 def extract_account_info(lines):
-    """
-    Extract account metadata from text lines (page 1 of the PDF).
-
-    BOB page 1 layout — two-column label/value pairs:
-      Account Name          Branch Name
-      CHANDRAKANT SONU...   MARINE DRIVE BR., MUMBAI
-      Account Number        IFSC Code
-      04050100012016        BARB0MARINE
-      Account Type          MICR Code
-      SBA                   400012045
-      ...
-      Account Statement from DD-MM-YYYY to DD-MM-YYYY
-    """
+   
     info = default_account_info()
     info["bank_name"] = BANK_DISPLAY_NAME
     info["currency"]  = "INR"
@@ -194,25 +182,6 @@ def extract_account_info(lines):
             break
     return info
 
-
-# ---------------------------------
-# OPENING / CLOSING BALANCE
-# ---------------------------------
-def extract_summary_balances(pdf_path, info):
-    """
-    BOB includes Opening Balance as Serial No 1 in the transaction table.
-    We patch info after transactions are extracted.
-    """
-    transactions = extract_transactions(pdf_path)
-    if not transactions:
-        return
-
-    for txn in transactions:
-        if "opening balance" in (txn.get("description") or "").lower():
-            info["opening_balance"] = txn.get("balance")
-            break
-
-    info["closing_balance"] = transactions[-1].get("balance")
 
 
 # ---------------------------------

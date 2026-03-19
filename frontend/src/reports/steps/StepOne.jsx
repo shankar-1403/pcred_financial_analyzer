@@ -81,6 +81,8 @@ function StepOne({reportData}) {
                 month: monthKey,
                 balance: balance,
                 opening: balance,
+                debit:debit,
+                credit:credit,
                 closing:balance,
                 creditCount: credit > 0 ? 1 : 0,
                 debitCount: debit > 0 ? 1 : 0,
@@ -147,11 +149,12 @@ function StepOne({reportData}) {
                 foirScore:0,
             };
         }else {
+            monthwise[monthKey].closing = balance
             monthwise[monthKey].netDebit += debit
             monthwise[monthKey].netCredit += credit
             monthwise[monthKey].averageBalance += balance
             monthwise[monthKey].balanceCount += 1
-            monthwise[monthKey].opening = monthwise[monthKey].balance + monthwise[monthKey].debit - monthwise[monthKey].credit 
+            monthwise[monthKey].opening = monthwise[monthKey].balance + monthwise[monthKey].debit - monthwise[monthKey].credit
 
             if (matchKeywords(description, chequeIssuesKeyword)) {
                 monthwise[monthKey].chequeIssues += debit;

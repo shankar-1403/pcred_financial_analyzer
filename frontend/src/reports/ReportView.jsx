@@ -10,7 +10,6 @@ import StepFour from './steps/StepFour';
 import StepFive from './steps/StepFive';
 import StepSix from './steps/StepSix';
 import StepSeven from './steps/StepSeven';
-import StepEight from './steps/StepEight';
 import axios from 'axios';
 import PropTypes from 'prop-types';
 import { IconEdit,IconCirclePlus,IconTrash } from '@tabler/icons-react';
@@ -20,6 +19,7 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import dayjs from 'dayjs';
 import customParseFormat from "dayjs/plugin/customParseFormat";
 import { Link } from 'react-router-dom';
+import { useSnackbar } from '../components/SnackbarContext';
 
 function CustomTabPanel(props) {
   const { children, value, index, ...other } = props;
@@ -63,8 +63,9 @@ const style = {
 dayjs.extend(customParseFormat);
 
 function ReportView() {
-    const {name,id} = useParams()
-    const navigate = useNavigate()
+    const {name,id} = useParams();
+    const navigate = useNavigate();
+    const { showSnackbar } = useSnackbar();
     const [reportData, setReportData] = useState({});
     const [loading, setLoading] = useState(true);
     const [btnLoading, setBtnLoading] = useState(false);
@@ -153,6 +154,9 @@ function ReportView() {
             const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/report-delete`,payload)
             if(response.data.status == 200){
                 navigate('/reports');
+                showSnackbar(response.data.message,"success");
+            }else{
+                showSnackbar(response.data.message,"error");
             }
         }catch(error){
             console.log(error)
@@ -177,9 +181,9 @@ function ReportView() {
             if(response.data.status == 200){
                 setOpen(false);
                 fetchData();
-                console.log(response.data.message)
+                showSnackbar(response.data.message,"success")
             }else{
-                console.log(response.data.message)
+                showSnackbar(response.data.message,"error")
             }
         }catch(error){
             console.log(error)

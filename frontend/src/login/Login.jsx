@@ -2,16 +2,18 @@ import { useRef, useState } from 'react'
 import TextField from '@mui/material/TextField';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { useSnackbar } from '../components/SnackbarContext';
 
 function Login() {
   const navigate = useNavigate();
+  const { showSnackbar } = useSnackbar();
   const loginRef = useRef(null);
   const registerRef = useRef(null);
   const [loginLoading,setLoginLoading] = useState(false);
   const [registerLoading,setRegisterLoading] = useState(false);
   const [loginTab, setLoginTab] = useState(true);
 
-  const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+  const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
   const SESSION_TOKEN_KEY = "session_token";
   
   function setLocalStorageItem(key, value, ttlInMs) {
@@ -105,8 +107,9 @@ function Login() {
         localStorage.setItem("name",response.data.company_name);
         setLocalStorageItem(SESSION_TOKEN_KEY, createSessionToken(), SESSION_TTL_MS);
         startSessionWatcher();
+        showSnackbar(response.data.message,"success");
       }else{
-        console.log(response.message)
+        showSnackbar(response.data.message,"error");
       }
     } catch(error){
       console.log(error);
