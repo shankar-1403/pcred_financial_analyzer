@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+#root {
+  width: 100%;
+}
+
+body{
+  background-color: #038fda12;
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+.month-divider {
+  border-right: 2px solid #cbd5e1;
+}
+
+.main-container{@apply pt-16 mx-10} 
+.card{@apply p-4 bg-white rounded-md shadow-lg mb-2} 
