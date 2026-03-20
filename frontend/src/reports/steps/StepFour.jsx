@@ -1,4 +1,4 @@
-import React,{useEffect,useState} from 'react';
+import React,{useMemo} from 'react';
 import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
@@ -18,7 +18,7 @@ function StepFour({reportData}) {
   const loanCreditKeywords = ["loan disbursement","loan disb","loan credit","pl disb","personal loan disb","pl credit","hl disb","home loan disb","home loan credit","vehicle loan disb","auto loan disb","loan a/c credit","loan account credit","loan proceeds","loan amount credited","loan release","loan disburse","loan transfer credit","od limit credit","overdraft credit","cc limit credit","loan booking credit"];
   const internalTransferKeywords = ["transfer","trf","internal transfer","internal trf","account transfer","a/c transfer","ac transfer","fund transfer","fund trf","self transfer","own account transfer","ib transfer","internet banking transfer","online transfer","mobile banking transfer","standing instruction","si","account adjustment","internal adjustment","contra","bank adjustment","system"];
   const interestReceivedKeywords = ["interest credit","interest received","interest cr","savings interest","savings interest credit","sb interest","sb interest credit","fd interest","fd interest credit","fixed deposit interest","rd interest","recurring deposit interest","interest payout","interest payment","interest adj credit","interest adjustment credit","interest reversal","interest refund","bank interest credit"];
-
+  const salaryKeywords = ["salary","sal","salary credit","sal credit","sal cr","salary cr","salary payment","salary deposit","payroll","payroll credit","net salary","monthly salary","salary for","sal for","salary transfer","sal transfer","salary processed","salary via","salary ach","salary neft","salary imps","salary rtgs"];
   const taxKeywords = ["gst","gst payment","cgst","sgst","igst","tds","income tax","tax payment","advance tax","self assessment tax","challan","tax deposit"];
   
   function matchKeywords(text, keywords) {
@@ -345,60 +345,116 @@ function StepFour({reportData}) {
       }))
   );
 
-  const salaryUnchanged = [];
+  // Salary unchanged ------------------------------------- //
 
-  const monthOrder = {
-    Jan:1, Feb:2, Mar:3, Apr:4, May:5, June:6,
-    July:7, Aug:8, Sept:9, Oct:10, Nov:11, Dec:12
-  };
+    const salaryAnalysis = useMemo(() => {
 
-  // convert object → array and sort by date
-  const months = Object.values(monthwise).sort((a, b) => {
-    const [m1, y1] = a.month.split(" ");
-    const [m2, y2] = b.month.split(" ");
+      const tolerance = 2000;
 
-    if (y1 !== y2) return Number(y1) - Number(y2);
-    return monthOrder[m1] - monthOrder[m2];
-  });
+      const isSalary = (desc, amount) => {
+        if (!desc) return false;
+        const text = desc.toLowerCase();
+        return salaryKeywords.some(k => text.includes(k)) && amount > 2000;
+      };
 
-  let startMonth = null;
-  let prevIncome = null;
-  let count = 0;
+      // Step 1: filter salary
+      const salaryTxns = transactionDetails.filter(item =>
+          isSalary(item.description, item.credit)
+      );
 
-  months.forEach((m, index) => {
+      // Step 2: group by month
+      const monthMap = {};
 
-    const income = Number(m.monthlyIncome) || 0;
+      salaryTxns.forEach(item => {
+          // eslint-disable-next-line no-unused-vars
+          const [day, month, year] = item.date.split("-");
+          const key = `${month} ${year}`;
 
-    if (income === prevIncome && income > 0) {
-      count++;
-    } else {
+          if (!monthMap[key]) {
+              monthMap[key] = [];
+          }
+
+          monthMap[key].push(item.credit);
+      });
+
+      // Step 3: monthly salary
+      const monthwise = Object.entries(monthMap).map(([month, values]) => ({
+        month,
+        income: Math.max(...values)
+      }));
+
+      // Step 4: sort
+      const monthOrder = {
+        Jan:1, Feb:2, Mar:3, Apr:4, May:5, June:6,
+        July:7, Aug:8, Sept:9, Oct:10, Nov:11, Dec:12
+      };
+
+      const months = monthwise.sort((a, b) => {
+        const [m1, y1] = a.month.split(" ");
+        const [m2, y2] = b.month.split(" ");
+
+        if (y1 !== y2) return Number(y1) - Number(y2);
+        return monthOrder[m1] - monthOrder[m2];
+      });
+
+      // unchanged periods (for table)
+      const salaryUnchanged = [];
+
+      let startMonth = null;
+      let prevIncome = null;
+      let count = 0;
+
+      months.forEach((m, index) => {
+        const income = Number(m.income) || 0;
+
+        if (prevIncome !== null && Math.abs(income - prevIncome) <= tolerance && income > 0) {
+            count++;
+        } else {
+
+            if (count >= 3) {
+                salaryUnchanged.push({
+                    period: `${startMonth} - ${months[index-1].month}`,
+                    salary_credit_from: startMonth,
+                    amount: prevIncome,
+                    txn_count: count
+                });
+            }
+
+            startMonth = m.month;
+            prevIncome = income;
+            count = 1;
+        }
+      });
 
       if (count >= 3) {
         salaryUnchanged.push({
-          period: `${startMonth} - ${months[index-1].month}`,
+          period: `${startMonth} - ${months[months.length-1].month}`,
           salary_credit_from: startMonth,
           amount: prevIncome,
           txn_count: count
         });
       }
 
-      startMonth = m.month;
-      prevIncome = income;
-      count = 1;
-    }
+      // change count (for summary)
+      let changeCount = 0;
 
-  });
+      for (let i = 1; i < months.length; i++) {
+          const prev = months[i - 1].income;
+          const curr = months[i].income;
 
-  // check last sequence
-  if (count >= 3) {
-    salaryUnchanged.push({
-      period: `${startMonth} - ${months[months.length-1].month}`,
-      salary_credit_from: startMonth,
-      amount: prevIncome,
-      txn_count: count
-    });
-  }
+          if (Math.abs(curr - prev) > tolerance) {
+              changeCount++;
+          }
+      }
 
+      return {
+          salaryUnchanged,
+          changeCount
+      };
+
+    }, [transactionDetails]);
+  
+  // -------------------
   return (
     <>
       <div className="card">
@@ -672,8 +728,8 @@ function StepFour({reportData}) {
                     </tr>
                 </thead>
                 <tbody>
-                  {salaryUnchanged.length > 0 ? (
-                    salaryUnchanged.map((txn, index) => (
+                  {salaryAnalysis.salaryUnchanged.length > 0 ? (
+                    salaryAnalysis.salaryUnchanged.map((txn, index) => (
                       <tr key={index}>
                         <td className="px-3 py-1.5 text-[12px]">{txn.period}</td>
                         <td className="px-3 py-1.5 text-[12px] text-right">{txn.salary_credit_from}</td>
@@ -683,7 +739,7 @@ function StepFour({reportData}) {
                     ))
                   ) : (
                     <tr>
-                      <td className="px-3 py-1.5 text-[12px] text-center" colSpan={3}>No Data Available</td>
+                      <td className="px-3 py-1.5 text-[12px] text-center" colSpan={4}>No Data Available</td>
                     </tr>
                   )}
                 </tbody>

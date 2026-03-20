@@ -156,6 +156,7 @@ function StepTwo({reportData}) {
 
         const totalObligationKeywords = ["emi","loan emi","emi payment","loan repayment","loan instalment","loan installment","term loan","pl emi","personal loan emi","hl emi","home loan emi","vehicle loan emi","auto loan emi","loan recovery","loan deduction","ecs","ecs debit","ecs dr","nach","nach debit","nach dr","ach","ach debit","ach dr","auto debit","auto-debit","standing instruction","si dr","credit card payment","cc payment","card payment","cr card payment","credit card bill","bajaj finance","hdb financial","tata capital","l&t finance","hero fincorp","shriram finance","aditya birla finance"];
 
+
         const monthWord = monthNames[parseInt(month) - 1]
         const monthKey = `${monthWord} ${year}`
         
@@ -388,13 +389,15 @@ function StepTwo({reportData}) {
     const cashDepositKeywords = ["cash deposit","cash dep","cash deposited","by cash","cash received","cdm deposit","cdm cash dep","cdm dep","branch cash deposit","brn cash dep","cash counter deposit","cash counter","teller deposit","teller cash dep","cash lodgement","cash lodgment","self cash deposit","deposit by cash","cash credit"];
     const atmWithdrawalKeywords = ["atm","atm wdl","atm withdrawal","atm cash","cash withdrawal atm","cash wd","cash wdl","cash withdrawal","atm-cash","atm cash withdrawal","atm withdrawal self","self atm","self withdrawal","atm txn","atm trxn","atm transaction","atm debit","atm dr","atm withdraw","card withdrawal","card cash withdrawal","card wdl","debit card atm","dc atm withdrawal","dc wdl","nfs atm withdrawal","nfs cash withdrawal","atm nfs","atm-nfs","nfs wdl","atm pos cash","atm withdrawal charges","atm charges"];
     const taxKeywords = ["gst","gst payment","cgst","sgst","igst","tds","income tax","tax payment","advance tax","self assessment tax","challan","tax deposit"];
+    const salaryKeywords = ["salary","sal","salary credit","sal credit","sal cr","salary cr","salary payment","salary deposit","payroll","payroll credit","net salary","monthly salary","salary for","sal for","salary transfer","sal transfer","salary processed","salary via","salary ach","salary neft","salary imps","salary rtgs"];
+
 
     
     const atmWithdrawalAbove2k = useMemo(() => {
         return transactionDetails.filter(item => 
             matchKeywords(item.description?.toLowerCase() || "", atmWithdrawalKeywords) && item.debit >= 2000
         )
-    })
+    },[transactionDetails])
 
     const roundFigureTaxPayments = Object.values(monthwise)
         .flatMap(m => m.transactions)
@@ -436,7 +439,7 @@ function StepTwo({reportData}) {
         return transactionDetails.filter(item => 
             matchKeywords(item.description?.toLowerCase() || "", atmWithdrawalKeywords) && item.debit >= 20000
         )
-    })
+    },[transactionDetails])
 
     
     
@@ -540,60 +543,76 @@ function StepTwo({reportData}) {
         }))
     );
 
-    const salaryUnchanged = [];
+    // Salary unchanged ------------------------------------- //
 
-    const monthOrder = {
-        Jan:1, Feb:2, Mar:3, Apr:4, May:5, June:6,
-        July:7, Aug:8, Sept:9, Oct:10, Nov:11, Dec:12
-    };
+        const salaryChangeCount = useMemo(() => {
 
-    // convert object → array and sort by date
-    const months = Object.values(monthwise).sort((a, b) => {
-        const [m1, y1] = a.month.split(" ");
-        const [m2, y2] = b.month.split(" ");
+            const tolerance = 2000;
 
-        if (y1 !== y2) return Number(y1) - Number(y2);
-        return monthOrder[m1] - monthOrder[m2];
-    });
 
-    let startMonth = null;
-    let prevIncome = null;
-    let count = 0;
+            const isSalary = (desc, amount) => {
+                if (!desc) return false;
+                const text = desc.toLowerCase();
+                return salaryKeywords.some(k => text.includes(k)) && amount > 2000;
+            };
 
-    months.forEach((m, index) => {
+            // Step 1: filter salary transactions
+            const salaryTxns = transactionDetails.filter(item =>
+                isSalary(item.description, item.credit)
+            );
 
-        const income = Number(m.monthlyIncome) || 0;
+            // Step 2: group by month
+            const monthMap = {};
 
-        if (income === prevIncome && income > 0) {
-        count++;
-        } else {
+            salaryTxns.forEach(item => {
+                // eslint-disable-next-line no-unused-vars
+                const [day, month, year] = item.date.split("-");
+                const key = `${month} ${year}`;
 
-        if (count >= 3) {
-            salaryUnchanged.push({
-            period: `${startMonth} - ${months[index-1].month}`,
-            salary_credit_from: startMonth,
-            amount: prevIncome,
-            txn_count: count
+                if (!monthMap[key]) {
+                    monthMap[key] = [];
+                }
+
+                monthMap[key].push(item.credit);
             });
-        }
 
-        startMonth = m.month;
-        prevIncome = income;
-        count = 1;
-        }
+            // Step 3: monthly salary (max per month)
+            const monthwise = Object.entries(monthMap).map(([month, values]) => ({
+                month,
+                income: Math.max(...values)
+            }));
 
-    });
+            // Step 4: sort months
+            const monthOrder = {
+                Jan:1, Feb:2, Mar:3, Apr:4, May:5, June:6,
+                July:7, Aug:8, Sept:9, Oct:10, Nov:11, Dec:12
+            };
 
-    // check last sequence
-    if (count >= 3) {
-        salaryUnchanged.push({
-        period: `${startMonth} - ${months[months.length-1].month}`,
-        salary_credit_from: startMonth,
-        amount: prevIncome,
-        txn_count: count
-        });
-    }
+            const months = monthwise.sort((a, b) => {
+                const [m1, y1] = a.month.split(" ");
+                const [m2, y2] = b.month.split(" ");
 
+                if (y1 !== y2) return Number(y1) - Number(y2);
+                return monthOrder[m1] - monthOrder[m2];
+            });
+
+            //  Step 5: count changes
+            let changeCount = 0;
+
+            for (let i = 1; i < months.length; i++) {
+                const prev = months[i - 1].income;
+                const curr = months[i].income;
+
+                if (Math.abs(curr - prev) > tolerance) {
+                    changeCount++;
+                }
+            }
+
+            return changeCount;
+
+        }, [transactionDetails]);
+
+    // -------------------
     const chartRef = useRef(null)
     const chartRefTwo = useRef(null)
 
@@ -922,7 +941,7 @@ function StepTwo({reportData}) {
                                     </tr>
                                     <tr className="bg-neutral-primary border-b border-gray-200">
                                         <td className="px-3 py-2 text-[14px]">Salary Credit Amount remains unchanged over extended period</td>
-                                        <td className="px-3 py-2 text-[14px]">{salaryUnchanged.length || 0}</td>
+                                        <td className="px-3 py-2 text-[14px]">{salaryChangeCount > 0 ? salaryChangeCount :  0}</td>
                                     </tr>
                                     <tr className="bg-neutral-primary border-b border-gray-200">
                                         <td className="px-3 py-2 text-[14px]">Parties present in both debits and credits</td>
