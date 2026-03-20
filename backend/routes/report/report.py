@@ -1,5 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, Depends
 from models.report.report import report_details,report_data,report_data_delete
+from fastapi import Form
 from apscheduler.schedulers.background import BackgroundScheduler
 from mongodb import get_db
 import shutil
@@ -7,6 +8,7 @@ import os
 from parser import parse_bank_statement
 from datetime import datetime, timedelta, timezone
 from bson import ObjectId
+from pypdf import PdfReader,PdfWriter
 
 router = APIRouter()
 
@@ -14,7 +16,7 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 @router.post("/reports/create-new")
-def create(data: report_details = Depends(report_details.as_form),file: UploadFile = File(...)):
+def create(data: report_details = Depends(report_details.as_form),file: UploadFile = File(...),password: str = Form("")):
     db = get_db()
     report_dict = data.model_dump()
     report_name = report_dict["report_name"]
@@ -27,6 +29,27 @@ def create(data: report_details = Depends(report_details.as_form),file: UploadFi
 
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+
+    # PDF Password ----------------- 
+    reader = PdfReader(file_path)
+
+    if reader.is_encrypted:
+        result = reader.decrypt(password)
+
+        if result == 0:
+            return {"message": "Invalid PDF password", "status": 400}
+
+        writer = PdfWriter()
+        for page in reader.pages:
+            writer.add_page(page)
+
+        decrypted_path = file_path.replace(".pdf", "_decrypted.pdf")
+
+        with open(decrypted_path, "wb") as f:
+            writer.write(f)
+
+        file_path = decrypted_path
+    # ----------------------------
 
     parsed_data = parse_bank_statement(file_path)
 

@@ -16,7 +16,7 @@ def _get_bank_module(bank_key: str):
         _BANK_MODULES["hdfc"] = hdfc
         _BANK_MODULES["kotak"] = kotak
         _BANK_MODULES["indusind"] = indusind
-        _BANK_MODULES["au"] = au
+        _BANK_MODULES["au bank"] = au
         _BANK_MODULES["boi"] = boi
         _BANK_MODULES["bob"] = bob
         _BANK_MODULES["generic"] = generic

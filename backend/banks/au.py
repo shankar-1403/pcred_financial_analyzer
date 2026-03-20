@@ -7,7 +7,7 @@ from .base import (
     detect_columns
 )
 
-BANK_KEY = "au"
+BANK_KEY = "au bank"
 BANK_DISPLAY_NAME = "AU Small Finance Bank"
 
 

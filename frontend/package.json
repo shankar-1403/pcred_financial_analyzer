@@ -27,6 +27,7 @@
     "framer-motion": "^12.38.0",
     "mongoose": "^9.2.2",
     "motion": "^12.34.3",
+    "pdfjs-dist": "^5.5.207",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1",

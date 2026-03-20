@@ -385,11 +385,11 @@ function StepOne({reportData}) {
                                     </tr>
                                     <tr className="bg-neutral-primary border-b border-gray-200">
                                         <td className="px-3 py-2 text-[14px]">Statement From</td>
-                                        <td className="px-3 py-2 text-[14px]">{accountDetails?.statement_period?.from.split("-").join("/") || "-"}</td>
+                                        <td className="px-3 py-2 text-[14px]">{accountDetails?.statement_period?.from?.split("-").join("/") || "-"}</td>
                                     </tr>
                                     <tr className="bg-neutral-primary border-b border-gray-200">
                                         <td className="px-3 py-2 text-[14px]">Statement To</td>
-                                        <td className="px-3 py-2 text-[14px]">{accountDetails?.statement_period?.to.split("-").join("/") || "-"}</td>
+                                        <td className="px-3 py-2 text-[14px]">{accountDetails?.statement_period?.to?.split("-").join("/") || "-"}</td>
                                     </tr>
                                     <tr className="bg-neutral-primary border-b border-gray-200">
                                         <td className="px-3 py-2 text-[14px]">Txn Start Date</td>

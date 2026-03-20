@@ -10,7 +10,12 @@ import { useNavigate } from "react-router-dom";
 const navItems = [
   { name: "Home", link: "/" },
   { name: "Reports", link: "/reports" },
-  { name: "Manage Users", link: "/manage-users" },
+  { name: "Masters", 
+    children: [
+      { name: "Users", link: "/master/users" },
+      { name: "Roles", link: "/master/roles" },
+    ]
+  },
   { name: "Manage Subscription", link: "/" },
   { name: "API Documentation", link: "/" },
 ];
@@ -18,7 +23,12 @@ const navItems = [
 const mobNavItems = [
   { name: "Home", link: "/" },
   { name: "Reports", link: "/" },
-  { name: "Manage Users", link: "/" },
+  { name: "Masters", 
+    children: [
+      { name: "Users", link: "/master/users" },
+      { name: "Roles", link: "/master/roles" },
+    ]
+  },
   { name: "Manage Subscription", link: "/" },
   { name: "API Documentation", link: "/" },
 ];

@@ -105,6 +105,9 @@ def detect_bank_from_text(lines):
     if "icici bank" in header_wide_lower:
         return "icici"
 
+    if "au bank" in header_wide_lower:
+        return "au bank"
+
     return None
 
 

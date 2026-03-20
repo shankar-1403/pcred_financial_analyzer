@@ -9,7 +9,11 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { useNavigate } from 'react-router-dom';
+import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf";
 import { useSnackbar } from '../components/SnackbarContext';
+import pdfWorker from "pdfjs-dist/legacy/build/pdf.worker?url";
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 const style = {
     position: 'absolute',
@@ -26,7 +30,11 @@ function NewReport() {
     const formRef = useRef(null);
     const { showSnackbar } = useSnackbar()
     const navigate = useNavigate();
+    const [selectedFile, setSelectedFile] = useState(null)
     const [open, setOpen] = useState(false);
+    const [password, setPassword] = useState("");
+    const [showModal, setShowModal] = useState(false);
+    const [needsPassword, setNeedsPassword] = useState(false);
     const [accordion, setAccordion] = useState([{ id: 1, open: true }]);
     const [loading, setLoading] = useState(false);
     const [fileName, setFileName] = useState("")
@@ -34,8 +42,25 @@ function NewReport() {
     const handleFileChange = (e) => {
         const file = e.target.files[0];
         if (file) {
-        setFileName(file.name);
+            setFileName(file.name);
         }
+        setSelectedFile(file);
+        const fileReader = new FileReader();
+        fileReader.onload = async function () {
+        const typedArray = new Uint8Array(this.result);
+
+        try {
+            await pdfjsLib.getDocument({ data: typedArray }).promise;
+            setNeedsPassword(false);
+        } catch (err) {
+            if (err.name === "PasswordException") {
+                setNeedsPassword(true);
+                setShowModal(true);
+            }
+        }
+        };
+
+        fileReader.readAsArrayBuffer(file);
     };
 
     const handleChange = (id,e) => {
@@ -88,17 +113,22 @@ function NewReport() {
         e.preventDefault();
         setLoading(true);
         setOpen(true);
+        if (needsPassword && !password) {
+            setShowModal(true);
+            return;
+        }
         try{
             const user_name = localStorage.getItem("name")
             const formData = new FormData();
             formData.append("report_name",formRef.current.elements.namedItem("report_name").value);
             formData.append("reference_id",formRef.current.elements.namedItem("reference_id").value);
             formData.append("status", "active");
+            formData.append("password", password);
             formData.append("created_by", user_name);
 
-            formData.append("file",formRef.current.elements.namedItem("financial_statement").files[0]);
+            formData.append("file",selectedFile);
 
-            const response = await axios.post("http://127.0.0.1:8000/api/reports/create-new",formData)
+            const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/reports/create-new`,formData)
             if(response.data.status == 200){
                 navigate("/reports");
                 showSnackbar(response.data.message,"success");
@@ -112,6 +142,10 @@ function NewReport() {
             setOpen(false);
         }
     }
+
+    const handlePasswordSubmit = () => {
+        setShowModal(false);
+    };
 
     const list = [
         { label: "Reports", path: "/reports" },
@@ -244,6 +278,21 @@ function NewReport() {
                 <Box sx={style}>
                     <div className="flex gap-4 items-center p-4">
                         <CircularProgress size="2rem" color='#084b6f'/><p className='font-semibold text-2xl'>Fetching Details from Bank Statement..</p>
+                    </div>
+                </Box>
+            </Modal>
+            <Modal
+                open={showModal}
+                aria-labelledby="modal-modal-title"
+                aria-describedby="modal-modal-description"
+            >
+                <Box sx={style}>
+                    <div className="modal">
+                        <h4 className='font-semibold text-2xl mb-4'>Enter PDF Password</h4>
+                        <div className="flex flex-col gap-2">
+                            <TextField label="Password" value={password} onChange={(e) => setPassword(e.target.value)} size='small' fullWidth/>
+                            <button className='bg-[#084b6f] py-2 px-4 rounded-md text-sm cursor-pointer text-white' onClick={handlePasswordSubmit}>Submit</button>
+                        </div>
                     </div>
                 </Box>
             </Modal>

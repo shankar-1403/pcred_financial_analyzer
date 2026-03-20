@@ -5,6 +5,7 @@ import Report from './reports/Report';
 import NewReport from './reports/NewReport';
 import ReportView from './reports/ReportView';
 import Users from './masters/Users';
+import Role from './masters/Role';
 import PrivateRoute from './PrivateRoute';
 import PublicRoute from './PublicRoute';
 import './App.css'
@@ -17,7 +18,8 @@ function App() {
           <Route path='/' element={<PublicRoute><Login/></PublicRoute>}/>
           <Route path='/dashboard' element={<PrivateRoute><Dashboard/></PrivateRoute>}/>
           <Route path='/reports' element={<PrivateRoute><Report/></PrivateRoute>}/>
-          <Route path='/manage-users' element={<PrivateRoute><Users/></PrivateRoute>}/>
+          <Route path='/master/users' element={<PrivateRoute><Users/></PrivateRoute>}/>
+          <Route path='/master/roles' element={<PrivateRoute><Role/></PrivateRoute>}/>
           <Route path='/new-report' element={<PrivateRoute><NewReport/></PrivateRoute>}/>
           <Route path='/report/:name/:id' element={<PrivateRoute><ReportView/></PrivateRoute>}/>
         </Routes>

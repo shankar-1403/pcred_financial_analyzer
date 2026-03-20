@@ -55,17 +55,16 @@ export const NavItems = ({ items }) => {
       {items.map((item, idx) => (
         <div
           key={item.name}
-          onMouseEnter={() => setOpen(idx)}
-          onMouseLeave={() => setOpen(null)}
+          onClick={() => setOpen(open == null ? idx : null)}
         >
           {item.link ? (
               <Link to={item.link} className="text-sm text-white cursor-pointer">{item.name}</Link>
           ) : (
             <span className={`text-sm text-white cursor-pointer flex items-center gap-1`}>
-              <div className="cursor-pointer text-left text-base py-3 flex gap-2 items-center">
+              <div className="cursor-pointer text-left text-sm py-3 flex gap-2 items-center">
                   <span>{item.name}</span>
                   <div>
-                  <IconCaretDownFilled className="w-4 h-4" />
+                  <IconCaretDownFilled className="w-3 h-3" />
                   </div>
               </div>
             </span>
@@ -77,13 +76,13 @@ export const NavItems = ({ items }) => {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
-                className="absolute left-1/2 top-full mt-2 w-60 -translate-x-1/2 rounded-xl bg-white shadow-xl border overflow-hidden"
+                className="absolute left-2/5 top-full mt-1 w-40 -translate-x-1/2 rounded-lg bg-white shadow-xl overflow-hidden"
               >
                 {item.children.map((child) => (
                   <Link
                     key={child.name}
                     to={child.link}
-                    className="block px-4 py-3 text-lg hover:bg-neutral-100 hover:text-[#E18126] text-blue-950 font-bold"
+                    className="block px-4 py-3 text-sm hover:bg-neutral-100 hover:text-[#E18126] text-[#084b6f] font-bold"
                   >
                     {child.name}
                   </Link>

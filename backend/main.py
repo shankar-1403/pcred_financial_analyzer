@@ -5,6 +5,7 @@ from routes.report.report import router as report_router
 from routes.report.bank_account import router as bank_router
 from routes.master.user import router as user_router
 from routes.bank_holiday.bank_holiday import router as bank_holiday_router
+from routes.master.role import router as role_router
 from mongodb import connectDb
 from contextlib import asynccontextmanager
 
@@ -33,5 +34,6 @@ app.add_middleware(
 app.include_router(auth_router,prefix="/auth")
 app.include_router(report_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
+app.include_router(role_router, prefix="/api")
 app.include_router(bank_router, prefix="/api")
 app.include_router(bank_holiday_router, prefix="/api")

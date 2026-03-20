@@ -20,6 +20,7 @@ function Users() {
     };
     const formRef = useRef(null)
     const [rows, setRows] = useState([]);
+    const [roleData, setRoleData] = useState([]);
     const [editId , setEditId] = useState("");
     const [isEdit, setIsEdit] = useState(false);
     const [open, setOpen] = useState(false);
@@ -36,22 +37,35 @@ function Users() {
         }
     }
 
+    const fetchRole = async() => {
+        try{
+           const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/roles`)
+           setRoleData(response.data?.result)
+        } catch(error){
+            console.log(error)
+        } finally{
+            // 
+        }
+    }
+
     const handleOpen = () => {
         setOpen(true);
         setIsEdit(false);
     }
     
     const handleEdit = (row) => {
+        console.log(row);
         setEditId(row._id);
         setOpen(true);
         setIsEdit(true);
         setTimeout(() => {
             formRef.current.full_name.value = row.full_name || "";
             formRef.current.email_id.value = row.email_id || "";
-            setRoleValue(row.role || "");
+            setRoleValue(row.role?.id || "");
             setStatusValue(row.status || "");
         }, 0);
     }
+
     const handleClose = () => {
         setOpen(false);
         setRoleValue("")
@@ -122,20 +136,17 @@ function Users() {
     })
 
     useEffect(()=>{
-        fetchData()
+        fetchData();
+        fetchRole();
     },[])
 
     const columns = [
         { field:"id", headerName:"ID",width:80},
-        { field: "full_name", headerName: "Name", renderCell:(params) => {
-            return(
-                <Link to={`/report/${params.row.report_name}/${params.row._id}`} className='underline text-blue-500'>{params.value}</Link>
-            )
-        }, width:300},
+        { field: "full_name", headerName: "Name", width:300},
         { field: "email_id", headerName: "Email ID", width:300},
         { field: "role", headerName: "Role", width:250,renderCell:(params) => {
             return(
-                <><span className='capitalize'>{params.row.role}</span></>
+                <><span className='capitalize'>{params.row.role?.role_name}</span></>
             )
         }},
         { field: "status", headerName: "Status",renderCell:(params) => {
@@ -161,9 +172,9 @@ function Users() {
         <>
             <Header/>
             <div className="main-container">
-                <div className="flex justify-between items-start pt-6">
+                <div className="flex justify-between items-start pt-3">
                     <div>
-                        <span className='text-xl text-[#084b6f] font-bold'>Manage Users</span>
+                        <span className='text-xl text-[#084b6f] font-bold'>User Master</span>
                     </div>
                     <div>
                         <button onClick={handleOpen} className='bg-[#084b6f] text-white py-2 px-4 rounded-md text-sm cursor-pointer font-semibold'>Add New User</button>
@@ -186,8 +197,9 @@ function Users() {
                                             <FormControl size='small' fullWidth>
                                                 <InputLabel id="role">Role</InputLabel>
                                                 <Select labelId="role" onChange={(e) => setRoleValue(e.target.value)} value={roleValue} id="role" name='role' label="Role">
-                                                    <MenuItem value='admin'>Admin</MenuItem>
-                                                    <MenuItem value="users">Users</MenuItem>
+                                                    {roleData.map((data) => (
+                                                        <MenuItem key={data._id} value={data._id}>{data.role_name}</MenuItem>
+                                                    ))}
                                                 </Select>
                                             </FormControl>
                                         </div>

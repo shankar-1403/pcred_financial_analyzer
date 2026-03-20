@@ -70,9 +70,12 @@ function ReportView() {
     const [loading, setLoading] = useState(true);
     const [btnLoading, setBtnLoading] = useState(false);
     const [formData, setFormData] = useState({ bank_name: "", acc_type: "", account_holder: "", account_number: "", analysis_from: null, analysis_to: null, statement_from: null, statement_to: null, account_opening_date: null, account_status: "", ifsc: "", micr: "", branch: "", branch_address: "", joint_holder: "", email_address: "", phone_no: "", pan: ""});
-    const [open, setOpen] = React.useState(false);
+    const [open, setOpen] = useState(false);
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const [rowId, setRowId] = useState("")
     const handleClose = () => setOpen(false);
-    const [value, setValue] = React.useState(0);
+    const handleDeleteClose = () => setDeleteOpen(false);
+    const [value, setValue] = useState(0);
     
     const handleTabChange = (event, newValue) => {
         setValue(newValue);
@@ -145,10 +148,15 @@ function ReportView() {
         });
     }
 
-    const handleDelete = async(id) => {
+    const handleDeleteOpen = (id) => {
+        setDeleteOpen(true);
+        setRowId(id)
+    }
+
+    const handleDelete = async() => {
         try{
             const payload = {
-                id:id,
+                id:rowId,
                 report_name:name,
             }
             const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/report-delete`,payload)
@@ -161,7 +169,7 @@ function ReportView() {
         }catch(error){
             console.log(error)
         }finally{
-            // console.log(object)
+            setDeleteOpen(false)
         }
     }
 
@@ -209,7 +217,7 @@ function ReportView() {
                         </div>
                         <div className='flex gap-2 justify-end'>
                             <div>
-                                <button onClick={() => handleDelete(id)} className='flex gap-2 items-center rounded-md text-sm cursor-pointer font-semibold py-2 px-3 border border-[#084b6f] text-[#084b6f] hover:text-red-600 hover:border-red-600'>
+                                <button onClick={() => handleDeleteOpen(id)} className='flex gap-2 items-center rounded-md text-sm cursor-pointer font-semibold py-2 px-3 border border-[#084b6f] text-[#084b6f] hover:text-red-600 hover:border-red-600'>
                                     Delete<IconTrash size={16}/>
                                 </button>
                             </div>
@@ -395,6 +403,25 @@ function ReportView() {
                             </div>
                         </div>
                     </form>
+                </Box>
+            </Modal>
+            <Modal
+                open={deleteOpen}
+                onClose={handleDeleteClose}
+                aria-labelledby="modal-modal-title"
+                aria-describedby="modal-modal-description"
+            >
+                <Box sx={style}>
+                    <p className='text-2xl text-center font-semibold'>Delete Report</p>
+                    <p className='text-lg'>Are you sure you want to delete the report?</p>
+                    <div className="flex justify-center gap-4 mt-4">
+                        <div>
+                            <button onClick={handleDeleteClose} className='bg-red-700 py-2 px-4 rounded-md text-sm cursor-pointer text-white'>Cancel</button>
+                        </div>
+                        <div>
+                            <button onClick={handleDelete} className='bg-[#084b6f] py-2 px-4 rounded-md text-sm cursor-pointer text-white'>Delete</button>
+                        </div>
+                    </div>
                 </Box>
             </Modal>
         </>
