@@ -11,9 +11,18 @@ BANK_SIGNATURES = [
     ("sbi", r"sbi", r"\bstate\s*bank\s*of\s*india\b|\bsbi\b"),
     ("kotak", r"kotak", r"\bkotak\s*mahindra\s*bank\b"),
     ("indusind", r"indusind", r"\bindusind\s*bank\b"),
-    ("au", r"\bau\d*\b|aubl", r"au\s*small\s*finance\s*bank"),
+    ("au bank", r"\bau\d*\b|aubl", r"au\s*small\s*finance\s*bank"),
     ("boi", r"\bboi\b|bank\s*of\s*india", r"bank\s*of\s*india"),
     ("bob", r"\bbob\b|bank\s*of\s*baroda|baroda", r"bank\s*of\s*baroda|barb0|bob\s*world"),
+    ("csb", r"\bcsb\b|catholic\s*syrian\s*bank", r"\bcsb\s*bank\b|catholic\s*syrian\s*bank"),
+    ("kokan", r"\bkokan\b|kokan\s*mercantile", r"kokan\s*mercantile|kkbkokmcb"),
+    ("canara", r"canara", r"canara\s*bank|cnrb"),
+    ("federal", r"federal", r"federal\s*bank|fdrl"),
+    ("indian", r"indian\s*bank|\bidib\b", r"indian\s*bank|\bidib\b"),
+    ("saraswat",
+    r"saraswat",
+    r"saraswat\s*co[\s-]*operative\s*bank|saraswat\s*bank|\bsrcb\b|8100000000\d{5}"),
+    ("standard_chartered", r"standard\s*chartered", r"standard\s*chartered\s*(bank)?|scbl"),
 ]
 
 def detect_bank_from_filename(file_path: str) -> Optional[str]:
@@ -35,9 +44,16 @@ IFSC_BANK_MAP = [
     ("icici", r"\bICIC[A-Z0-9]{7}\b"),      # ICICI Bank
     ("sbi", r"\bSBIN[A-Z0-9]{7}\b"),        # State Bank of India
     ("kotak", r"\bKKBK[A-Z0-9]{7}\b"),      # Kotak
-    ("au", r"\bAUBL[A-Z0-9]{7}\b"),         #AU Bank
+    ("au bank", r"\bAUBL[A-Z0-9]{7}\b"),         #AU Bank
     ("boi", r"\bBKID[A-Z0-9]{7}\b"),        #BOI Bank
     ("bob",  r"\bBARB[A-Z0-9]{7}\b"),       # Bank of Baroda (BARB0MARINE etc.)
+     ("csb", r"\bCSBK[A-Z0-9]{7}\b"),        # CSB Bank
+    ("kokan", r"\bKKBKOKMCB[A-Z0-9]+\b"),   # Kokan Mercantile — add BEFORE kotak
+    ("canara", r"\bCNRB[A-Z0-9]{7}\b"),     #Canara Bank
+    ("federal", r"\bFDRL[A-Z0-9]{7}\b"),    #Federal Bank
+    ("indian", r"\bIDIB[A-Z0-9]{7}\b"),     #Indian Bank
+    ("saraswat", r"\bSRCB[A-Z0-9]{7}\b"),   #Saraswat Bank
+    ("standard_chartered", r"\bSCBL[A-Z0-9]{7}\b"), # Standard_chartered Bank
 ]
 
 
@@ -70,6 +86,11 @@ def detect_bank_from_text(lines):
     header_wide_lower = header_wide.lower()
     # Strict header: only first N lines — "HDFC Bank" here = statement bank; in txns = ignore
     header_only = " ".join((line or "") for line in lines[:_HEADER_ONLY_LINES]).lower()
+
+    if "saraswat" in header_wide_lower or re.search(r"\bsrcb\b", header_wide_lower):
+        return "saraswat"
+    if re.search(r"\b810000000\d{6}\b", header_wide_lower):
+        return "saraswat"
 
     # 1) IFSC in statement (IndusInd INDB checked before HDFC so we don't mis-id from txn text)
     for key, pattern in IFSC_BANK_MAP:
@@ -107,6 +128,18 @@ def detect_bank_from_text(lines):
 
     if "au bank" in header_wide_lower:
         return "au bank"
+    
+    if "canara bank" in header_wide_lower or re.search(r"\bcnrb\b", header_wide_lower):
+        return "canara"
+    
+    if "federal bank" in header_wide_lower or re.search(r"\bfdrl\b", header_wide_lower):
+        return "federal"
+    
+    if "indian bank" in header_wide_lower or re.search(r"\bidib\b", header_wide_lower):
+        return "indian"
+    
+    if "standard chartered" in header_wide_lower or re.search(r"\bscbl\b", header_wide_lower):
+        return "standard_chartered"
 
     return None
 

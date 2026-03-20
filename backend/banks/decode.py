@@ -1,31 +1,36 @@
 import sys
 import os
-import json
+sys.path.insert(0, "D:\\Pcred_BankStats_Proj\\pcred_financial_analyzer\\backend")
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "backend"))
+# ── TEST 1: Which saraswat.py is actually loaded ──────────────────────
+import banks.saraswat as sw
+print(f"[1] saraswat.py path  : {sw.__file__}")
+print(f"[2] has TXN_LINE_RE   : {hasattr(sw, 'TXN_LINE_RE')}")
+print(f"[3] BANK_DISPLAY_NAME : {sw.BANK_DISPLAY_NAME}")
 
+# ── TEST 2: What ocr_engine returns ──────────────────────────────────
 from ocr_engine import extract_text_from_pdf
-from banks.bank_detector import detect_bank
-from banks.boi import extract_transactions
-
-pdf = "C:/Users/admin/Downloads/boi_removed.pdf"
-
-# ── STEP 1: What does ocr_engine return? ──
+pdf = "D:\\BankStats&GST3B\\saraswat2.pdf"
 lines = extract_text_from_pdf(pdf)
-print(f"Lines from ocr_engine : {len(lines)}")
-print(f"First 5 lines:")
-for l in lines[:5]:
-    print(f"  {repr(l)}")
+print(f"\n[4] ocr_engine line count : {len(lines)}")
+print(f"[5] First 10 lines:")
+for i, l in enumerate(lines[:10]):
+    print(f"     {i:2d} | {repr(l)}")
 
-# ── STEP 2: What bank is detected? ──
+# ── TEST 3: What detect_bank returns ─────────────────────────────────
+from banks.bank_detector import detect_bank
 bank_key = detect_bank(pdf, lines)
-print(f"\nDetected bank : '{bank_key}'")   # Must be 'boi', not 'generic'
+print(f"\n[6] detect_bank result : {bank_key}")
 
-# ── STEP 3: How many transactions does boi.extract_transactions return? ──
-txns = extract_transactions(pdf)
-print(f"\nboi.extract_transactions count : {len(txns)}")  # Must be 149
+# ── TEST 4: Run extract_account_info directly ─────────────────────────
+info = sw.extract_account_info(lines)
+print(f"\n[7] account_holder : {info.get('account_holder')}")
+print(f"[8] account_number : {info.get('account_number')}")
+print(f"[9] bank_name      : {info.get('bank_name')}")
+print(f"[10] period from   : {info.get('statement_period', {}).get('from')}")
 
-# ── STEP 4: Full parse ──
-from banks import parse_bank_statement
-data = parse_bank_statement(pdf)
-print(f"\nparse_bank_statement count : {len(data['transactions'])}")
+# ── TEST 5: Run extract_transactions directly ─────────────────────────
+txns = sw.extract_transactions(pdf)
+print(f"\n[11] Total transactions : {len(txns)}")
+if txns:
+    print(f"[12] First transaction  : {txns[0]}")
