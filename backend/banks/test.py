@@ -1,62 +1,48 @@
-import warnings
-warnings.filterwarnings("ignore")
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
+import sys
 import os
-import pdfplumber
-from pdf2image import convert_from_path
-import numpy as np
-import cv2
+import json
 
-# PaddleOCR is NOT imported here — only loaded if scanned PDF detected
-_ocr = None
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from banks import parse_bank_statement
 
-def _get_ocr():
-    global _ocr
-    if _ocr is None:
-        from paddleocr import PaddleOCR          # ← import only happens here
-        _ocr = PaddleOCR(use_angle_cls=False, lang="en", use_gpu=False, show_log=False)
-    return _ocr
+pdf = "d:/OnePager_BankStat/Financials/Galaxy Machinery/Canara Bank Loan 0015-Statment-2025-26 (Till.28.07.2025).pdf"
 
+data = parse_bank_statement(pdf)
 
-def extract_pdf_text_fast(pdf_path):
-    lines = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text()
-            if text:
-                lines.extend(text.split("\n"))
-    return lines
+print("\nACCOUNT INFO\n")
+print(json.dumps(data["account"], indent=4))
 
+transactions = data["transactions"]
 
-def preprocess(image):
-    image = cv2.resize(np.array(image), None, fx=0.6, fy=0.6)
-    gray  = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    return gray
+chunk_size = 50
+total = len(transactions)
 
+# create ranges
+ranges = []
+for i in range(0, total, chunk_size):
+    start = i + 1
+    end = min(i + chunk_size, total)
+    ranges.append((start, end))
 
-def run_ocr(img):
-    processed = preprocess(img)
-    result    = _get_ocr().ocr(processed, cls=False)
-    lines     = []
-    if result and result[0]:
-        for line in result[0]:
-            if line and len(line) >= 2:
-                text = line[1][0].strip()
-                if text:
-                    lines.append(text)
-    return lines
+print("\nAVAILABLE TRANSACTION RANGES\n")
 
+for i, r in enumerate(ranges, 1):
+    print(f"{i}. Transactions {r[0]} - {r[1]}")
 
-def extract_text_from_pdf(pdf_path):
-    # Digital PDF — fast path, OCR never loads
-    text_lines = extract_pdf_text_fast(pdf_path)
-    if text_lines and len(text_lines) > 20:
-        return text_lines
+while True:
 
-    # Scanned PDF — only NOW does PaddleOCR load
-    images    = convert_from_path(pdf_path, dpi=150)
-    all_lines = []
-    for img in images:
-        all_lines.extend(run_ocr(img))
-    return all_lines
+    choice = input("\nEnter range number to view (or q to quit): ")
+
+    if choice.lower() == "q":
+        break
+
+    try:
+        idx = int(choice) - 1
+        start, end = ranges[idx]
+
+        print(f"\nTRANSACTIONS {start} - {end}\n")
+
+        print(json.dumps(transactions[start-1:end], indent=4))
+
+    except:
+        print("Invalid choice")

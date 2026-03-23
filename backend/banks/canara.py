@@ -11,7 +11,7 @@ BANK_KEY          = "canara"
 BANK_DISPLAY_NAME = "Canara Bank"
 
 # =====================================================================
-# CANARA BANK — Handles 3 known PDF formats
+# CANARA BANK — Handles 4 known PDF formats
 #
 # FORMAT 1 — Image/Scanned ("canara_removed" type)
 #   - IMAGE-BASED (0 text chars) → OCR engine provides lines
@@ -42,6 +42,19 @@ BANK_DISPLAY_NAME = "Canara Bank"
 #   - Then: "Chq: XXXXXXXXXX" line that closes each transaction
 #   - Separate Deposits / Withdrawals columns — determined by balance delta
 #   - Date format: DD-MM-YYYY
+#
+# FORMAT 4 — Online / OD / OCC table-based ("canara_table" type)  ← NEW
+#   - TEXT-BASED, medium-high char density
+#   - Account info in a clean 2-column key-value table at top of page 1
+#   - Transactions in an 8-column pdfplumber table (lines strategy):
+#       [Txn Date+Time | Value Date | Cheque No. | Description |
+#        Branch Code | Debit | Credit | Balance]
+#   - Balance can be NEGATIVE (OD accounts): "-13,44,02,294.00"
+#   - Empty Debit or Credit cell means no movement on that side
+#   - Description can wrap across lines (pdfplumber joins with \n in cell)
+#   - Date format: DD-MM-YYYY HH:MM:SS  (time stripped for output)
+#   - Header signature: "Account Holders Name" / "Customer Id" /
+#     "Searched By" ALL on separate label-value text lines
 # =====================================================================
 
 
@@ -114,7 +127,8 @@ def _clean_amount_canara(value):
 
 def detect_format(pdf_path, lines):
     """
-    Returns 'f1' (image/OCR), 'f2' (doubled-char text), or 'f3' (epassbook).
+    Returns 'f1' (image/OCR), 'f2' (doubled-char text),
+    'f3' (epassbook), or 'f4' (table-based OD/OCC).
     """
     try:
         with pdfplumber.open(pdf_path) as pdf:
@@ -125,13 +139,37 @@ def detect_format(pdf_path, lines):
     if chars == 0:
         return 'f1'  # image-based
 
-    # Check for doubled characters (every char repeated)
+    # ── FORMAT 4 detection ──────────────────────────────────────
+    # Signature: clean 2-col account-info table + 8-col transaction
+    # table on page 1.  Identified by:
+    #   • "Account Holders Name" AND "Customer Id" AND "Searched By"
+    #     all present as label-value text lines in the header, AND
+    #   • pdfplumber finds an 8-column table on page 1.
+    header_text = " ".join(lines[:20]).lower()
+    has_f4_labels = (
+        "account holders name" in header_text
+        and "customer id" in header_text
+        and "searched by" in header_text
+    )
+    if has_f4_labels:
+        try:
+            with pdfplumber.open(pdf_path) as pdf:
+                tables = pdf.pages[0].extract_tables(
+                    {"vertical_strategy": "lines", "horizontal_strategy": "lines"}
+                )
+                for t in tables:
+                    if t and len(t[0]) == 8:
+                        return 'f4'
+        except Exception:
+            pass
+
+    # ── FORMAT 2: doubled characters ────────────────────────────
     sample = " ".join(lines[:5])
     pairs = sum(1 for i in range(len(sample) - 1) if sample[i] == sample[i + 1])
     if pairs > len(sample) * 0.3:
         return 'f2'
 
-    # E-passbook: "Statement for A/c" or "between ... and ..." in header
+    # ── FORMAT 3: e-passbook ────────────────────────────────────
     full = " ".join(lines[:5]).lower()
     if 'statement for a/c' in full or 'between' in full:
         return 'f3'
@@ -146,7 +184,7 @@ def detect_format(pdf_path, lines):
 def extract_account_info(lines, pdf_path=None):
     """
     Extract account metadata from Canara Bank statement.
-    Works across all 3 formats.
+    Works across all 4 formats.
     """
     info = default_account_info()
     info["bank_name"] = BANK_DISPLAY_NAME
@@ -160,6 +198,83 @@ def extract_account_info(lines, pdf_path=None):
         normalized = lines
 
     full_text = "\n".join(normalized)
+
+    # ── FORMAT 4: clean 2-col table — parse directly from text lines ──
+    # All fields are "Label Value" on the same line (pdfplumber text extract)
+    # e.g. "Account Holders Name GALAXY MACHINERY PVT LTD"
+    if fmt == 'f4':
+        for line in normalized[:25]:
+            line_s = (line or "").strip()
+            if not line_s:
+                continue
+
+            if info["account_holder"] is None:
+                m = re.search(r"Account\s+Holders?\s+Name\s+(.+)", line_s, re.I)
+                if m:
+                    info["account_holder"] = m.group(1).strip()
+
+            if info["customer_id"] is None:
+                m = re.search(r"Customer\s+Id\s+(\S+)", line_s, re.I)
+                if m:
+                    info["customer_id"] = m.group(1).strip()
+
+            if info["branch"] is None:
+                m = re.search(r"Branch\s+Name\s+(.+)", line_s, re.I)
+                if m:
+                    info["branch"] = m.group(1).strip()
+
+            if info["micr"] is None:
+                m = re.search(r"MICR\s+Code\s+(\d{9})", line_s, re.I)
+                if m:
+                    info["micr"] = m.group(1).strip()
+
+            if info["ifsc"] is None:
+                m = re.search(r"IFSC\s+Code\s+(\S+)", line_s, re.I)
+                if m:
+                    info["ifsc"] = m.group(1).strip()
+
+            if info["account_number"] is None:
+                m = re.search(r"Account\s+Number\s+(\d{10,})", line_s, re.I)
+                if m:
+                    info["account_number"] = m.group(1).strip()
+
+            if info["currency"] == "INR":
+                m = re.search(r"Account\s+Currency\s+(INR|USD|EUR)", line_s, re.I)
+                if m:
+                    info["currency"] = m.group(1).strip()
+
+            if info["acc_type"] is None:
+                m = re.search(r"Product\s+Name\s+(.+)", line_s, re.I)
+                if m:
+                    info["acc_type"] = m.group(1).strip()
+
+            if info["statement_period"]["from"] is None:
+                m = re.search(
+                    r"Searched\s+By\s+From\s+(.+?)\s+To\s+(.+)", line_s, re.I
+                )
+                if m:
+                    info["statement_period"]["from"] = m.group(1).strip()
+                    info["statement_period"]["to"]   = m.group(2).strip()
+
+            if info["statement_request_date"] is None:
+                m = re.search(
+                    r"Account\s+Statement\s+as\s+of\s+(\d{2}-\d{2}-\d{4})", line_s, re.I
+                )
+                if m:
+                    info["statement_request_date"] = m.group(1).strip()
+
+        # Opening / closing balance: "Opening Balance Rs. -13,32,15,104.00"
+        m = OPEN_BAL_PAT.search(full_text)
+        if m:
+            info["opening_balance"] = _clean_amount_canara(m.group(1))
+
+        m = CLOSE_BAL_PAT.search(full_text)
+        if m:
+            info["closing_balance"] = _clean_amount_canara(m.group(1))
+
+        return info
+
+    # ── Formats 1 / 2 / 3 (existing logic unchanged) ──────────────────
 
     # ── Account holder ─────────────────────────────────────────
     m = HOLDER_PAT.search(full_text)
@@ -260,7 +375,6 @@ def extract_account_info(lines, pdf_path=None):
         info["closing_balance"] = _clean_amount_canara(m.group(1))
 
     # ── Statement period ───────────────────────────────────────
-    # F1/F2: "From 01 Dec 2022 To 31 Mar 2023"
     m = PERIOD_PAT.search(full_text)
     if m:
         info["statement_period"]["from"] = m.group(1).strip()
@@ -337,8 +451,10 @@ def extract_transactions(pdf_path, lines=None):
         return _extract_f1(lines)
     elif fmt == 'f2':
         return _extract_f2(lines)
-    else:
+    elif fmt == 'f3':
         return _extract_f3(lines)
+    else:
+        return _extract_f4(pdf_path)
 
 
 # =============================================================
@@ -410,54 +526,25 @@ def _extract_f1(lines):
 
 
 # =============================================================
-# FORMAT 2: Doubled-char text  (FIXED)
+# FORMAT 2: Doubled-char text
 # =============================================================
-#
-# After de-duplication the doubled timestamps produce a stray extra
-# digit between the date and the hour, e.g.:
-#   "1177--0022--2200223311 00::4411::0055"  →  "17-02-20231 0:41:05"
-# The original regex required "DD-MM-YYYY HH:MM:SS" exactly and
-# therefore missed these lines, causing transactions to be merged.
-#
-# Additionally, garbled keywords ("FundsT ransferD ebit-", "RTGSC r-")
-# broke keyword-based debit/credit detection, so we now use balance
-# delta (same approach as F3) which is immune to text garbling.
-# ──────────────────────────────────────────────────────────────────
 
-# Allows an optional stray digit between the date and the time, and a
-# broadened optional value-date group to cover garbled month names.
 F2_TXN_RE = re.compile(
-    r'^(\d{2}-\d{2}-\d{4})\d?\s+'              # date + optional stray digit
-    r'\d{1,2}:\d{2}:\d{2}\s*'                  # time (hour may be 1 digit after dedup)
-    r'(?:\d{1,2}\s*[A-Za-z]+\s*\d{1,4}\s+)?'  # optional garbled value date
-    r'(.+?)\s+'                                  # description middle (non-greedy)
-    r'(-?[\d,]+\.\d{2})\s+'                     # debit-or-credit amount
-    r'(-?[\d,]+\.\d{2})\s*$'                    # running balance
+    r'^(\d{2}-\d{2}-\d{4})\d?\s+'
+    r'\d{1,2}:\d{2}:\d{2}\s*'
+    r'(?:\d{1,2}\s*[A-Za-z]+\s*\d{1,4}\s+)?'
+    r'(.+?)\s+'
+    r'(-?[\d,]+\.\d{2})\s+'
+    r'(-?[\d,]+\.\d{2})\s*$'
 )
 
-# Strip a garbled value date that survived at the start of the middle
-# capture group, e.g. "17F eb2 023 " or "16 Feb 2023 "
-_F2_VALDATE_STRIP = re.compile(r'^\d{1,2}\s*[A-Za-z]{1,5}\s*\d{1,4}\s+')
-
-# Strip a 9-12 digit cheque/reference number from the start
-_F2_CHQNO_STRIP   = re.compile(r'^\d{9,12}\s+')
-
-# Strip a 2-5 digit branch code from the end ("5120", "33", "1745")
-_F2_BRANCH_STRIP  = re.compile(r'\s+\d{2,5}\s*$')
-
-# Skip pure timestamp-only continuation lines ("16:23:06") that result
-# from the wrapped timestamp portion of a transaction header.
+_F2_VALDATE_STRIP  = re.compile(r'^\d{1,2}\s*[A-Za-z]{1,5}\s*\d{1,4}\s+')
+_F2_CHQNO_STRIP    = re.compile(r'^\d{9,12}\s+')
+_F2_BRANCH_STRIP   = re.compile(r'\s+\d{2,5}\s*$')
 _F2_TIMESTAMP_ONLY = re.compile(r'^\d{2}:\d{2}:\d{2}$')
 
 
 def _clean_desc_f2(middle: str) -> str:
-    """
-    Strip artefacts from the middle capture group of F2_TXN_RE:
-      - garbled value date prefix  ("17F eb2 023", "16 Feb 2023")
-      - cheque / reference number  ("000000945755")
-      - branch code suffix         ("5120", "33", "1745")
-    Returns normalised description text.
-    """
     d = middle.strip()
     d = _F2_VALDATE_STRIP.sub('', d).strip()
     d = _F2_CHQNO_STRIP.sub('', d).strip()
@@ -468,19 +555,8 @@ def _clean_desc_f2(middle: str) -> str:
 def _extract_f2(lines):
     """
     Parse de-duplicated text lines from a doubled-char Canara Bank statement.
-
-    Key differences from the original _extract_f2:
-      • F2_TXN_RE handles the stray digit that appears in the datetime
-        stamp after de-duplication (e.g. "17-02-20231 0:41:05").
-      • Debit/Credit is determined by comparing the running balance of
-        consecutive transactions (balance delta), not by keyword matching
-        on the (often garbled) description.
-      • Pure timestamp-only continuation lines are skipped so they do
-        not pollute the previous transaction's description.
-      • Description cleaning removes residual value-date prefixes and
-        branch-code suffixes from the captured middle group.
+    Credit/Debit determined by balance delta.
     """
-    # De-duplicate all lines first
     deduped = [re.sub(r'(.)\1', r'\1', line) for line in lines]
 
     transactions = []
@@ -493,7 +569,6 @@ def _extract_f2(lines):
         if not line_s or SKIP_LINE.search(line_s):
             continue
 
-        # Skip pure timestamp continuation lines
         if _F2_TIMESTAMP_ONLY.match(line_s):
             continue
 
@@ -511,8 +586,6 @@ def _extract_f2(lines):
             balance = _clean_amount_canara(balance_raw)
             desc    = _clean_desc_f2(middle)
 
-            # Determine debit/credit via balance delta — robust against
-            # garbled text such as "FundsT ransferD ebit-", "RTGSC r-"
             debit = credit = None
             if prev_balance is not None and balance is not None and amount is not None:
                 delta = round(balance - prev_balance, 2)
@@ -521,8 +594,6 @@ def _extract_f2(lines):
                 else:
                     debit = amount
             elif amount is not None:
-                # First transaction — opening balance is 0; if balance
-                # equals amount it must be a credit (deposit).
                 if balance is not None and abs(balance - amount) < 0.01:
                     credit = amount
                 else:
@@ -541,7 +612,6 @@ def _extract_f2(lines):
                 prev_balance = balance
 
         elif current is not None:
-            # Continuation line — append to current description
             if not re.search(r'^TxnD\s*ate|^Date\s+Particulars|^Code\s*$',
                              line_s, re.I):
                 current['description'] = (
@@ -555,40 +625,14 @@ def _extract_f2(lines):
 
 
 # =============================================================
-# FORMAT 3: E-Passbook  (FIXED & REWRITTEN)
+# FORMAT 3: E-Passbook
 # =============================================================
-#
-# Layout quirks that the original parser did not handle:
-#
-#   1. Description text appears ABOVE the date line (the original
-#      parser expected description BELOW).
-#
-#   2. Some description text also wraps ONTO the date line as "junk"
-#      between the date and the two amounts, e.g.:
-#        "01-01-2023 89943674CAFA4DF91/01/01/202 120.00 2,550.80"
-#        "02-01-2023 FOOTWEAR/CANARA//7868742 2,000.00 1,550.80"
-#      This junk must be captured and appended to the description.
-#
-#   3. After the date line more continuation text appears (timestamp,
-#      hash fragments) until the "Chq: XXXXXXXXXX" line which marks
-#      the end of each transaction.
-#
-#   4. The "Chq: 0" case (internal transfer) should produce ref_no=None.
-#
-# State machine:
-#   • Lines before a date line → desc_buffer (pre-date description)
-#   • Date line hit → emit previous txn; start new txn; attach
-#     desc_buffer + inline junk as description; reset desc_buffer
-#   • Lines after date line until Chq: → continuation appended to desc
-#   • Chq: line → assign ref_no; finalize txn
-# ──────────────────────────────────────────────────────────────────
 
-# Date line: DD-MM-YYYY [optional_junk] AMOUNT BALANCE
 _F3_DATE_LINE = re.compile(
-    r'^(\d{2}-\d{2}-\d{4})\s+'    # date
-    r'(.*?)\s*'                    # optional wrapped description junk
-    r'(-?[\d,]+\.\d{2})\s+'       # deposit or withdrawal amount
-    r'(-?[\d,]+\.\d{2})\s*$'      # running balance
+    r'^(\d{2}-\d{2}-\d{4})\s+'
+    r'(.*?)\s*'
+    r'(-?[\d,]+\.\d{2})\s+'
+    r'(-?[\d,]+\.\d{2})\s*$'
 )
 
 _F3_CHQ_LINE = re.compile(r'^Chq:\s*(\S+)')
@@ -605,26 +649,18 @@ _F3_HEADER_SKIP = re.compile(
 def _extract_f3(lines):
     """
     Parse e-passbook format Canara Bank statement.
-
-    Layout: description lines appear ABOVE the date line; some
-    description text also wraps ONTO the date line as junk between
-    the date field and the two amount columns.  Each transaction is
-    terminated by a "Chq: XXXXXXXXXX" line.
-
-    Credit/Debit is determined by balance delta (balance increase →
-    deposit/credit; balance decrease → withdrawal/debit).
+    Credit/Debit determined by balance delta.
     """
     transactions = []
     prev_balance = None
 
-    # Find opening balance from header area
     for line in lines[:15]:
         m = re.search(r'Opening\s+Balance\s+([\d,]+\.?\d*)', line, re.I)
         if m:
             prev_balance = _clean_amount_canara(m.group(1))
             break
 
-    desc_buffer = []   # accumulates description lines ABOVE the date line
+    desc_buffer = []
     current     = None
 
     for line in lines:
@@ -633,11 +669,9 @@ def _extract_f3(lines):
         if not line_s:
             continue
 
-        # Skip page headers, bank name lines, address lines, etc.
         if SKIP_LINE.search(line_s) or _F3_HEADER_SKIP.search(line_s):
             continue
 
-        # ── Chq: line → finalise the current transaction ───────
         chq_m = _F3_CHQ_LINE.match(line_s)
         if chq_m:
             if current is not None:
@@ -648,21 +682,18 @@ def _extract_f3(lines):
             desc_buffer = []
             continue
 
-        # ── Date line → emit previous; start new transaction ───
         date_m = _F3_DATE_LINE.match(line_s)
         if date_m:
-            date_str   = date_m.group(1)
-            inline_junk = date_m.group(2).strip()   # wrapped desc fragment
-            amount     = _clean_amount_canara(date_m.group(3))
-            balance    = _clean_amount_canara(date_m.group(4))
+            date_str    = date_m.group(1)
+            inline_junk = date_m.group(2).strip()
+            amount      = _clean_amount_canara(date_m.group(3))
+            balance     = _clean_amount_canara(date_m.group(4))
 
-            # Build description: lines before date line + inline junk
             parts = [x for x in desc_buffer if x]
             if inline_junk:
                 parts.append(inline_junk)
             desc = re.sub(r'\s+', ' ', ' '.join(parts)).strip()
 
-            # Determine debit/credit from balance delta
             debit = credit = None
             if prev_balance is not None and balance is not None and amount is not None:
                 delta = round(balance - prev_balance, 2)
@@ -671,7 +702,7 @@ def _extract_f3(lines):
                 else:
                     debit = amount
             elif amount is not None:
-                credit = amount  # safest default without context
+                credit = amount
 
             current = {
                 'date':        date_str,
@@ -685,24 +716,144 @@ def _extract_f3(lines):
             if balance is not None:
                 prev_balance = balance
 
-            desc_buffer = []  # reset; subsequent lines are continuations
+            desc_buffer = []
             continue
 
-        # ── All other lines ────────────────────────────────────
         if current is not None:
-            # Post-date continuation (timestamp, hash fragment, etc.)
             current['description'] = (
                 current['description'] + ' ' + line_s
             ).strip()
         else:
-            # Pre-date description line
             desc_buffer.append(line_s)
 
-    # Flush last transaction if the statement ends without a Chq: line
     if current is not None:
         transactions.append(current)
 
     return transactions
+
+
+# =============================================================
+# FORMAT 4: Table-based OD / OCC / Online statement  ← NEW
+# =============================================================
+#
+# PDF CHARACTERISTICS:
+# =====================
+# - TEXT-BASED; pdfplumber line strategy gives clean 8-column tables
+# - Page 1 has 3 tables: address block (1-col), account info (2-col),
+#   transactions (8-col)
+# - Page 2 onwards has transactions (8-col) + optional disclaimer (1-col)
+# - 8 columns per row:
+#     [Txn Date+Time | Value Date | Cheque No. | Description |
+#      Branch Code   | Debit      | Credit     | Balance]
+# - Balance CAN BE NEGATIVE for OD accounts: "-13,44,02,294.00"
+# - Empty Debit or Credit cell = no movement on that side
+# - Description wraps across lines (pdfplumber joins with \n in cell)
+# - Date format: "DD-MM-YYYY HH:MM:SS" — strip time, keep DD-MM-YYYY
+# - Header row text: "Txn Date" / "Value Date" / "Cheque No." etc.
+# - Skip rows: header row + disclaimer table (identified by 1-col)
+
+_F4_DATE_RE   = re.compile(r'^(\d{2}-\d{2}-\d{4})')   # extract date from datetime
+_F4_SKIP_DESC = re.compile(
+    r'^disclaimer|unless\s+the\s+constituent|if\s+you\s+have|'
+    r'centralized|reserve\s+bank|www\.|https?://|toll\s+free|'
+    r'end\s+of\s+statement',
+    re.I
+)
+
+
+def _extract_f4(pdf_path):
+    """
+    Extract transactions from a Format 4 Canara Bank statement.
+
+    Uses pdfplumber table extraction (8-column tables) directly.
+    Debit / Credit are explicit separate columns — no delta logic needed.
+    Balance can be negative (OD accounts).
+    """
+    transactions = []
+
+    with pdfplumber.open(pdf_path) as pdf:
+
+        for page in pdf.pages:
+
+            tables = page.extract_tables(
+                {"vertical_strategy": "lines", "horizontal_strategy": "lines"}
+            )
+
+            if not tables:
+                continue
+
+            for table in tables:
+
+                if not table or len(table[0]) != 8:
+                    continue  # only 8-column transaction tables
+
+                for row in table:
+
+                    if not row or len(row) < 8:
+                        continue
+
+                    # Skip header row
+                    first_cell = (row[0] or "").strip()
+                    if re.match(r'^txn\s*date', first_cell, re.I):
+                        continue
+
+                    # Skip disclaimer / footer rows
+                    desc_cell = (row[3] or "").strip()
+                    if _F4_SKIP_DESC.search(desc_cell) or _F4_SKIP_DESC.search(first_cell):
+                        continue
+
+                    txn = _build_txn_f4(row)
+                    if txn:
+                        transactions.append(txn)
+
+    return transactions
+
+
+def _build_txn_f4(row):
+    """
+    Build one transaction dict from a Format 4 table row.
+    Columns: [Txn Date+Time, Value Date, Cheque No., Description,
+              Branch Code, Debit, Credit, Balance]
+    Returns None if the row has no valid date.
+    """
+    def _cell(idx):
+        if idx >= len(row):
+            return None
+        return (row[idx] or "").replace("\n", " ").strip() or None
+
+    datetime_raw = _cell(0)
+    if not datetime_raw:
+        return None
+
+    # Extract just the date portion "DD-MM-YYYY" from "DD-MM-YYYY HH:MM:SS"
+    m = _F4_DATE_RE.match(datetime_raw)
+    if not m:
+        return None
+    date_str = m.group(1)
+
+    value_date = (_cell(1) or "").strip() or None
+    cheque_no  = _cell(2) or None
+
+    desc = _cell(3)
+    if desc:
+        desc = re.sub(r"\s+", " ", desc).strip()
+
+    branch_code = _cell(4) or None
+
+    debit   = _clean_amount_canara(_cell(5))
+    credit  = _clean_amount_canara(_cell(6))
+    balance = _clean_amount_canara(_cell(7))
+
+    return {
+        "date":        date_str,
+        "value_date":  value_date,
+        "cheque_no":   cheque_no,
+        "description": desc,
+        "branch_code": branch_code,
+        "debit":       debit,
+        "credit":      credit,
+        "balance":     balance,
+    }
 
 
 # =============================================================
@@ -725,7 +876,6 @@ def _finalize_canara(txn):
     elif is_debit and not is_credit:
         txn['debit'] = amount
     else:
-        # Ambiguous — use priority keywords
         if re.search(r'RTGS\s*Cr|NEFT\s*Cr|By\s+Clg|CASH-BNA', desc, re.I):
             txn['credit'] = amount
         else:

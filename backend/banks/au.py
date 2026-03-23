@@ -53,6 +53,8 @@ ACCOUNT_NO_PATTERN          = r"account\s*(no\.?|number)\s*[:\-]?\s*(\d{10,})"
 CUSTOMER_ID_PATTERN         = r"(customer\s*id|primary\s*customer\s*id)\s*[:\-]?\s*(\d+)"
 IFSC_PATTERN                = r"\bAUBL[A-Z0-9]{7}\b"
 CUSTOMER_TYPE_PATTERN       = r"customer\s*type\s*[:\-]?\s*(.+)"
+BRANCH_PATTERN = r"branch\s*[:\-]?\s*(.+)"
+STATEMENT_DATE_PATTERN = r"statement\s*date\s*[:\-]?\s*(\d{2}-[A-Za-z]{3}-\d{4})"
 
 STATEMENT_PERIOD_PATTERN = (
     r"(?:statement\s*(?:period|from))\s*[:\-]?\s*"
@@ -151,6 +153,24 @@ def extract_account_info(lines):
             m = re.search(CUSTOMER_ID_PATTERN, text, re.I)
             if m:
                 info["customer_id"] = m.group(2)
+
+        if info.get("branch") is None:
+            m = re.search(BRANCH_PATTERN, text, re.I)
+            if m:
+                branch = m.group(1).strip()
+
+                # handle multiline branch (AU format)
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    if next_line and not re.search(r"address|city|state|pin", next_line, re.I):
+                        branch += " " + next_line
+
+                info["branch"] = branch
+
+        if info.get("statement_request_date") is None:
+            m = re.search(STATEMENT_DATE_PATTERN, text, re.I)
+            if m:
+                info["statement_request_date"] = m.group(1)
 
         # ---------------------------
         # IFSC

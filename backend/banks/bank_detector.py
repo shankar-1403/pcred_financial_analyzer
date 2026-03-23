@@ -22,7 +22,10 @@ BANK_SIGNATURES = [
     ("saraswat",
     r"saraswat",
     r"saraswat\s*co[\s-]*operative\s*bank|saraswat\s*bank|\bsrcb\b|8100000000\d{5}"),
-    ("standard_chartered", r"standard\s*chartered", r"standard\s*chartered\s*(bank)?|scbl"),
+    ("standard_chartered", r"standard[\s_-]*charter|stadard[\s_-]*charter", r"standard\s*chartered\s*(bank)?"),
+    ("cosmos", r"cosmos", r"cosmos\s*co[\s-]*op|the\s*cosmos"),
+    ("bom", r"\bbom\b|bank\s*of\s*maharashtra|mahabank", r"bank\s*of\s*maharashtra|mahb"),
+    ("bandhan", r"bandhan", r"bandhan\s*bank"),
 ]
 
 def detect_bank_from_filename(file_path: str) -> Optional[str]:
@@ -53,7 +56,10 @@ IFSC_BANK_MAP = [
     ("federal", r"\bFDRL[A-Z0-9]{7}\b"),    #Federal Bank
     ("indian", r"\bIDIB[A-Z0-9]{7}\b"),     #Indian Bank
     ("saraswat", r"\bSRCB[A-Z0-9]{7}\b"),   #Saraswat Bank
-    ("standard_chartered", r"\bSCBL[A-Z0-9]{7}\b"), # Standard_chartered Bank
+    ("standard_chartered", r"\bSCBL[A-Z0-9]{7}\b"),# Standard_chartered Bank
+    ("cosmos", r"\bCOSB[A-Z0-9]{7}\b"),     #Cosmos Bank
+    ("bom", r"\bMAHB[A-Z0-9]{7}\b"),        #Bank Of Maharashtra
+    ("bandhan", r"\bBDBL[A-Z0-9]{7}\b"),    #Bandhan Bank
 ]
 
 
@@ -91,6 +97,10 @@ def detect_bank_from_text(lines):
         return "saraswat"
     if re.search(r"\b810000000\d{6}\b", header_wide_lower):
         return "saraswat"
+    
+    # FIX 3 continued: Check Standard Chartered by name BEFORE the IFSC scan, because SCB puts "STANDARD CHARTERED BANK" on line 1 but UTIB (Axis) IFSCs
+    if "standard chartered" in header_wide_lower or re.search(r"\bscbl\b", header_wide_lower):
+        return "standard_chartered"
 
     # 1) IFSC in statement (IndusInd INDB checked before HDFC so we don't mis-id from txn text)
     for key, pattern in IFSC_BANK_MAP:
@@ -138,8 +148,11 @@ def detect_bank_from_text(lines):
     if "indian bank" in header_wide_lower or re.search(r"\bidib\b", header_wide_lower):
         return "indian"
     
-    if "standard chartered" in header_wide_lower or re.search(r"\bscbl\b", header_wide_lower):
-        return "standard_chartered"
+    if "cosmos co-op" in header_wide_lower \
+            or "cosmos co op" in header_wide_lower \
+            or re.search(r"the\s+cosmos", header_wide_lower) \
+            or re.search(r"\bcosb\b", header_wide_lower):
+        return "cosmos"
 
     return None
 

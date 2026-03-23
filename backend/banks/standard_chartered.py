@@ -4,341 +4,234 @@ from datetime import datetime
 
 from .base import default_account_info
 
-BANK_KEY          = "standard_chartered"
+BANK_KEY = "standard_chartered"
 BANK_DISPLAY_NAME = "Standard Chartered Bank"
 
-# =====================================================================
-# STANDARD CHARTERED BANK — PDF Statement Parser
-#
-# LAYOUT (repeated on every page):
-#   Header block:
-#     "COMPANY NAME  Branch : STANDARD CHARTERED BANK"
-#     "(Company Name)"
-#     "Account Type  : CA"
-#     "M/S ... (Account"
-#     "Account Number : XXXXXXXXXX"
-#     "Name)"
-#     "Currency : INR"
-#     "C/1, TRADE WORLD... (Address)"
-#     "Statement Date : DD Mon YYYY to DD Mon YYYY"
-#     "PAREL (W), . (Address)"
-#     "Date  Description  Withdrawal  Deposit  Balance"
-#
-#   Opening line:
-#     "Balance Brought Forward  -NNN,NNN.NN"
-#
-#   Transaction lines (two patterns):
-#     WITH amount:
-#       "DD Mon YYYY  DESC_START  AMOUNT  BALANCE"
-#     WITHOUT amount (e.g. LIMIT CHANGED):
-#       "DD Mon YYYY  DESC_START  BALANCE"
-#
-#   Continuation lines (no date prefix) append to current transaction.
-#   The PDF duplicates the first word(s) of each description on the
-#   first continuation line — deduplicated via _append_continuation().
-#
-#   Footer per page:
-#     "Thank you for banking with Standard Chartered..."
-#     "Page N of NNN"
-#     "Generated on : DD Mon YYYY"
-#
-# DEBIT / CREDIT:
-#   Determined by balance delta (balance increase → credit/deposit;
-#   balance decrease → debit/withdrawal).
-#   LIMIT CHANGED lines carry no amount — debit=None, credit=None.
-#
-# DATE FORMAT:
-#   Input:  "DD Mon YYYY"  (e.g. "10 Apr 2025")
-#   Output: "DD-MM-YYYY"
-# =====================================================================
+# ─────────────────────────────────────────────────────────────
+# PATTERNS
+# ─────────────────────────────────────────────────────────────
 
+DATE_LINE_PAT   = re.compile(r"^(\d{2}\s+[A-Za-z]{3}\s+\d{4})\s+(.*)")
+AMOUNT_PAT      = re.compile(r"-?[\d,]+\.\d{2}")
+BALANCE_FWD_PAT = re.compile(r"Balance Brought Forward\s+(-?[\d,]+\.\d{2})", re.I)
 
-# ---------------------------------
-# REGEX PATTERNS
-# ---------------------------------
-
-# Transaction line WITH two amounts: date + desc + amount + balance
-_TXN_RE = re.compile(
-    r'^(\d{2}\s+\w{3}\s+\d{4})\s+'    # date: "DD Mon YYYY"
-    r'(.+?)\s+'                          # description start (non-greedy)
-    r'(-?[\d,]+\.\d{2})\s+'             # withdrawal or deposit amount
-    r'(-?[\d,]+\.\d{2})\s*$'            # running balance
-)
-
-# Transaction line with ONE number only (balance, no dr/cr amount)
-# e.g. "29 Apr 2025 LIMIT CHANGED TO ACTIVELIMITLIENAMT -88.50"
-_TXN_NO_AMT_RE = re.compile(
-    r'^(\d{2}\s+\w{3}\s+\d{4})\s+'
-    r'(.+?)\s+'
-    r'(-?[\d,]+\.\d{2})\s*$'
-)
-
-# Lines to skip (page headers, footers, column headers)
-_SKIP_RE = re.compile(
-    r'^Statement of Account$|'
-    r'^Date\s+Description\s+Withdrawal|'
-    r'^Thank you for banking|'
-    r'^Page\s+\d+\s+of\s+\d+|'
-    r'^Generated on\s*:|'
-    r'^\(Company Name\)$|'
-    r'^\(Account$|'                     # split across lines
-    r'^Name\)$|'
-    r'^\(Address\)$|'
-    r'^Account\s+Type\s*:|'
-    r'^Account\s+Number\s*:|'
-    r'^Currency\s*:|'
-    r'^Statement\s+Date\s*:|'
-    r'^Branch\s*:',
+# Account info — extracted from the first line which looks like:
+# "PAPIERUS PACKAGING AND PAPER PRIVATE LIMITED Branch : STANDARD CHARTERED BANK"
+HOLDER_PAT      = re.compile(r"^(.+?)\s+Branch\s*:", re.I)
+ACCOUNT_NO_PAT  = re.compile(r"Account\s*Number\s*[:\-]?\s*(\d{8,20})", re.I)
+ACCOUNT_TY_PAT  = re.compile(r"Account\s*Type\s*[:\-]?\s*(\w+)", re.I)
+CURRENCY_PAT    = re.compile(r"Currency\s*[:\-]?\s*([A-Z]{3})", re.I)
+STMT_DATE_PAT   = re.compile(
+    r"Statement\s*Date\s*[:\-]?\s*"
+    r"(\d{2}\s+[A-Za-z]{3}\s+\d{4})\s+to\s+(\d{2}\s+[A-Za-z]{3}\s+\d{4})",
     re.I
 )
 
-# Header content lines that repeat every page (address, company name row)
-_HEADER_CONTENT_RE = re.compile(
-    r'Branch\s*:\s*STANDARD CHARTERED|'
-    r'C/1,\s*TRADE WORLD|'
-    r'PAREL\s*\(W\)|'
-    r'PAPIERUS PACKAGING AND PAPER PRIVATE LIMITED\s+Branch',
+# Lines to skip when building descriptions (page boilerplate repeated on every page)
+SKIP_LINE_PAT = re.compile(
+    r"^(Statement of Account"
+    r"|Thank you for banking"
+    r"|Page \d+\s+of\s+\d+"
+    r"|Generated on\s*:"
+    r"|Date\s+Description\s+Withdrawal"
+    r"|\(Company Name\)"
+    r"|\(Address\)"
+    r"|\(Account(\s*Name)?\)"
+    r"|Name\)$"
+    r"|M/S\s+[A-Z]"
+    r"|C/1,"
+    r"|PAREL\s*\(W\)"
+    r"|Branch\s*:.*STANDARD CHARTERED"
+    r"|Account\s*Type\s*:"
+    r"|Account\s*Number\s*:"
+    r"|Currency\s*:"
+    r"|Statement\s*Date\s*:)",
     re.I
 )
 
-# Opening / closing balance
-_OPEN_BAL_RE  = re.compile(
-    r'Balance\s+Brought\s+Forward\s+(-?[\d,]+\.\d{2})', re.I
-)
-_CLOSE_BAL_RE = re.compile(
-    r'Closing\s+Balance\s+(-?[\d,]+\.\d{2})', re.I
-)
 
-# Account info patterns
-_ACCT_NO_RE   = re.compile(r'Account\s+Number\s*:\s*(\d+)', re.I)
-_ACCT_TYPE_RE = re.compile(r'Account\s+Type\s*:\s*(\S+)', re.I)
-_CURRENCY_RE  = re.compile(r'Currency\s*:\s*([A-Z]{3})', re.I)
-_BRANCH_RE    = re.compile(r'Branch\s*:\s*(.+)', re.I)
-_STMT_DATE_RE = re.compile(
-    r'Statement\s+Date\s*:\s*(\d{2}\s+\w+\s+\d{4})\s+to\s+(\d{2}\s+\w+\s+\d{4})',
-    re.I
-)
-# Company name is first line before "(Company Name)"
-# Account name is "M/S ... (Account" line before "Name)"
-
-
-# ---------------------------------
+# ─────────────────────────────────────────────────────────────
 # HELPERS
-# ---------------------------------
+# ─────────────────────────────────────────────────────────────
 
-def _ca(value):
-    """Clean and parse a number string to float."""
-    if not value:
-        return None
-    try:
-        return float(str(value).strip().replace(',', ''))
-    except ValueError:
-        return None
+def _parse_amount(s: str):
+    try:    return float(str(s).replace(",", "").strip())
+    except: return None
 
+def _parse_date(s: str) -> str:
+    try:    return datetime.strptime(s.strip(), "%d %b %Y").strftime("%d-%m-%Y")
+    except: return s.strip()
 
-def _parse_date(s):
-    """Convert 'DD Mon YYYY' → 'DD-MM-YYYY'."""
-    try:
-        return datetime.strptime(s.strip(), '%d %b %Y').strftime('%d-%m-%Y')
-    except ValueError:
-        return s.strip()
+def _strip_amounts(text: str) -> str:
+    return re.sub(r"\s{2,}", " ", AMOUNT_PAT.sub("", text)).strip()
 
+def _is_skip(line: str) -> bool:
+    return bool(SKIP_LINE_PAT.match(line.strip()))
 
-def _append_continuation(current_desc, cont_line):
+def _clean_desc(desc: str) -> str:
     """
-    Append a continuation line to the current description, removing any
-    duplicate prefix that the PDF echoes from the transaction header line.
-
-    Standard Chartered PDFs repeat the first token(s) of the description
-    on the next line, e.g.:
-      Header line desc:  "RTGS|UTIBR62025041010097002"
-      Continuation line: "RTGS|UTIBR62025041010097002 PAPIERUS PACKAGING..."
-    → result: "RTGS|UTIBR62025041010097002 PAPIERUS PACKAGING..."
+    SCB repeats the first token on the same line:
+    "RTGS|UTIBR... RTGS|UTIBR... PAPIERUS" → deduplicate.
+    "PIPALIIN02A00001 PIPALIIN02A00001 JITO" → deduplicate.
     """
-    cont = cont_line.strip()
-    if not cont:
-        return current_desc
-
-    curr_words = current_desc.split()
-    cont_words = cont.split()
-
-    # Try longest-first prefix match of cont against the END of current_desc
-    for n in range(min(8, len(curr_words), len(cont_words)), 0, -1):
-        if curr_words[-n:] == cont_words[:n]:
-            remaining = ' '.join(cont_words[n:])
-            return (current_desc + ' ' + remaining).strip() if remaining else current_desc
-
-    return (current_desc + ' ' + cont).strip()
+    desc = re.sub(r"\s{2,}", " ", desc).strip()
+    m = re.match(r"^(\S+)\s+\1\s+(.*)", desc)
+    if m:
+        desc = m.group(1) + " " + m.group(2).strip()
+    return desc
 
 
-# =============================================================
+# ─────────────────────────────────────────────────────────────
 # ACCOUNT INFO EXTRACTION
-# =============================================================
+# ─────────────────────────────────────────────────────────────
 
-def extract_account_info(lines, pdf_path=None):
-    """Extract account metadata from a Standard Chartered statement."""
+def extract_account_info(lines):
     info = default_account_info()
     info["bank_name"] = BANK_DISPLAY_NAME
-    info["currency"]  = "INR"
+    info["branch"]    = "Standard Chartered Bank"
 
-    full_text = "\n".join(lines)
+    full_text = " ".join(line.strip() for line in lines if line)
+
+    # Account holder: SCB always puts it on the SECOND line (index 1) as:
+    # "PAPIERUS PACKAGING AND PAPER PRIVATE LIMITED Branch : STANDARD CHARTERED BANK"
+    # We extract everything before "Branch :" on that line.
+    # We do NOT loop all lines because later lines like "LIMIT CHANGED TO ACTIVELIMITLIENAMT"
+    # could accidentally match if iterated.
+    for line in lines[1:5]:   # check lines 1-4 only (true header block)
+        line = line.strip()
+        if not line:
+            continue
+        m = HOLDER_PAT.match(line)
+        if m:
+            candidate = m.group(1).strip()
+            # Reject noise lines — must be at least 10 chars and not a system message
+            # Note: check "ACTIVELIMIT" not "LIMIT" — company names can end in "LIMITED"
+            if len(candidate) >= 10 and "ACTIVELIMIT" not in candidate.upper():
+                info["account_holder"] = candidate
+                break
 
     # Account number
-    m = _ACCT_NO_RE.search(full_text)
+    m = ACCOUNT_NO_PAT.search(full_text)
     if m:
         info["account_number"] = m.group(1).strip()
 
     # Account type
-    m = _ACCT_TYPE_RE.search(full_text)
+    m = ACCOUNT_TY_PAT.search(full_text)
     if m:
-        info["acc_type"] = m.group(1).strip()
+        raw = m.group(1).strip()
+        # Map short codes to full names
+        type_map = {"CA": "Current Account", "SA": "Savings Account", "CC": "Cash Credit"}
+        info["acc_type"] = type_map.get(raw.upper(), raw)
 
     # Currency
-    m = _CURRENCY_RE.search(full_text)
+    m = CURRENCY_PAT.search(full_text)
     if m:
         info["currency"] = m.group(1).strip()
 
-    # Branch
-    m = _BRANCH_RE.search(full_text)
-    if m:
-        val = m.group(1).strip()
-        # Avoid capturing the full repeated header line
-        if len(val) < 60:
-            info["branch"] = val
-
     # Statement period
-    m = _STMT_DATE_RE.search(full_text)
+    m = STMT_DATE_PAT.search(full_text)
     if m:
         info["statement_period"]["from"] = m.group(1).strip()
         info["statement_period"]["to"]   = m.group(2).strip()
 
-    # Company / account holder name — appears before "(Company Name)" tag
-    for i, line in enumerate(lines):
-        if re.match(r'^\(Company Name\)$', line.strip(), re.I):
-            # Name is on the previous line, but that line also has "Branch : ..."
-            # Extract just the company name part (before "Branch")
-            prev = lines[i - 1].strip() if i > 0 else ''
-            m2 = re.match(r'^(.+?)\s+Branch\s*:', prev, re.I)
-            if m2:
-                info["account_holder"] = m2.group(1).strip()
-            elif prev:
-                info["account_holder"] = prev
-            break
-
-    # Opening balance
-    m = _OPEN_BAL_RE.search(full_text)
-    if m:
-        info["opening_balance"] = _ca(m.group(1))
-
-    # Closing balance — from last transaction's balance if not explicit
-    m = _CLOSE_BAL_RE.search(full_text)
-    if m:
-        info["closing_balance"] = _ca(m.group(1))
-
     return info
 
 
-# =============================================================
+# ─────────────────────────────────────────────────────────────
+# OPENING / CLOSING BALANCE
+# ─────────────────────────────────────────────────────────────
+
+def extract_summary_balances(pdf_path, info):
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            for line in text.split("\n"):
+                m = BALANCE_FWD_PAT.search(line)
+                if m and info.get("opening_balance") is None:
+                    info["opening_balance"] = _parse_amount(m.group(1))
+
+
+# ─────────────────────────────────────────────────────────────
 # TRANSACTION EXTRACTION
-# =============================================================
+# ─────────────────────────────────────────────────────────────
 
-def extract_transactions(pdf_path, lines=None):
-    """Extract all transactions from a Standard Chartered PDF statement."""
-    if lines is None:
-        try:
-            with pdfplumber.open(pdf_path) as pdf:
-                lines = []
-                for page in pdf.pages:
-                    lines.extend((page.extract_text() or '').split('\n'))
-        except Exception:
-            lines = []
+def extract_transactions(pdf_path: str):
+    """
+    Parse Standard Chartered Bank PDF statement via raw text.
 
+    Format:
+      DD Mon YYYY  <description_part>  [txn_amount]  <balance>
+      [continuation lines...]
+
+    Debit vs Credit → balance delta vs previous balance.
+    LIMIT CHANGED rows → delta=0 → no debit/credit.
+    """
     transactions = []
     current      = None
-    prev_balance = None
+    last_balance = None
 
-    # Find opening balance (Balance Brought Forward)
-    for line in lines[:20]:
-        m = _OPEN_BAL_RE.search(line)
+    with pdfplumber.open(pdf_path) as pdf:
+        all_lines = []
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                all_lines.extend(text.split("\n"))
+
+    for raw in all_lines:
+        line = raw.strip()
+        if not line or _is_skip(line):
+            continue
+
+        # Opening balance
+        m = BALANCE_FWD_PAT.search(line)
         if m:
-            prev_balance = _ca(m.group(1))
-            break
-
-    for line in lines:
-        ls = line.strip()
-        if not ls:
+            last_balance = _parse_amount(m.group(1))
             continue
 
-        # Skip header/footer lines
-        if _SKIP_RE.search(ls) or _HEADER_CONTENT_RE.search(ls):
-            continue
-
-        # Skip "Balance Brought Forward" line (already captured above)
-        if re.search(r'Balance\s+Brought\s+Forward', ls, re.I):
-            continue
-
-        # ── Transaction line with amount + balance ──────────────
-        m2 = _TXN_RE.match(ls)
-        if m2:
-            if current:
+        # ── New transaction ──
+        m = DATE_LINE_PAT.match(line)
+        if m:
+            if current is not None:
+                current["description"] = _clean_desc(current["description"])
                 transactions.append(current)
 
-            date_str = _parse_date(m2.group(1))
-            desc     = m2.group(2).strip()
-            amount   = _ca(m2.group(3))
-            balance  = _ca(m2.group(4))
+            date_str  = _parse_date(m.group(1))
+            remainder = m.group(2).strip()
+            amounts   = AMOUNT_PAT.findall(remainder)
 
-            # Determine debit/credit from balance delta
+            balance = txn_amount = None
+            if len(amounts) >= 2:
+                balance    = _parse_amount(amounts[-1])
+                txn_amount = _parse_amount(amounts[-2])
+            elif len(amounts) == 1:
+                balance = _parse_amount(amounts[-1])
+
             debit = credit = None
-            if prev_balance is not None and balance is not None and amount is not None:
-                delta = round(balance - prev_balance, 2)
-                if delta >= 0:
-                    credit = amount
-                else:
-                    debit = amount
+            if balance is not None and last_balance is not None:
+                delta = round(balance - last_balance, 2)
+                if txn_amount is None and delta != 0:
+                    txn_amount = abs(delta)
+                if delta > 0 and txn_amount:
+                    credit = txn_amount
+                elif delta < 0 and txn_amount:
+                    debit = txn_amount
 
             current = {
-                'date':        date_str,
-                'description': desc,
-                'ref_no':      None,
-                'debit':       debit,
-                'credit':      credit,
-                'balance':     balance,
+                "date":        date_str,
+                "description": _strip_amounts(remainder),
+                "debit":       debit,
+                "credit":      credit,
+                "balance":     balance,
             }
-            if balance is not None:
-                prev_balance = balance
-            continue
+            last_balance = balance
 
-        # ── Transaction line with balance only (no dr/cr amount) ─
-        m1 = _TXN_NO_AMT_RE.match(ls)
-        if m1:
-            if current:
-                transactions.append(current)
+        else:
+            # ── Continuation line ──
+            if current is not None and not _is_skip(line):
+                current["description"] = (current["description"] + " " + line).strip()
 
-            date_str = _parse_date(m1.group(1))
-            desc     = m1.group(2).strip()
-            balance  = _ca(m1.group(3))
-
-            current = {
-                'date':        date_str,
-                'description': desc,
-                'ref_no':      None,
-                'debit':       None,
-                'credit':      None,
-                'balance':     balance,
-            }
-            if balance is not None:
-                prev_balance = balance
-            continue
-
-        # ── Continuation line ───────────────────────────────────
-        if current is not None:
-            current['description'] = _append_continuation(
-                current['description'], ls
-            )
-
-    # Flush last transaction
-    if current:
+    if current is not None:
+        current["description"] = _clean_desc(current["description"])
         transactions.append(current)
 
     return transactions

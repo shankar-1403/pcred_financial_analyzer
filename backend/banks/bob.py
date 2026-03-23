@@ -238,13 +238,21 @@ def extract_transactions(pdf_path):
                     # Parse col[0] → serial, txn_date, value_date, description
                     serial_no, txn_date, value_date, description = _parse_col0(col0)
 
-                    if serial_no is None or txn_date is None:
-                        continue
+                    serial_no, txn_date, value_date, description = _parse_col0(col0)
 
                     cheque_no = (row[1] or "").strip() or None
                     debit     = _clean_amount_bob(row[2])
                     credit    = _clean_amount_bob(row[3])
                     balance   = _clean_amount_bob(row[4])
+
+                    # Skip invalid rows AND Opening Balance (no value_date)
+                    if (
+                        serial_no is None
+                        or txn_date is None
+                        or value_date is None 
+                        or (debit is None and credit is None)  # ✅ THIS LINE filters Opening Balance
+                    ):
+                        continue
 
                     transactions.append({
                         "serial_no":   serial_no,
