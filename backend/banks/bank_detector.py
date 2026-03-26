@@ -27,6 +27,8 @@ BANK_SIGNATURES = [
     ("bom", r"\bbom\b|bank\s*of\s*maharashtra|mahabank", r"bank\s*of\s*maharashtra|mahb"),
     ("bandhan", r"bandhan", r"bandhan\s*bank"),
     ("yes_bank", r"yes[\s_-]*bank|\byesb\b", r"yes\s*bank|\byesb\b"),
+    ("union_bank", r"union[\s_-]*bank|ubin", r"union\s*bank\s*of\s*india|\bubin\b"),
+    ("cbi", r"central[\s_-]*bank|cbi|\bcbin\b", r"central\s*bank\s*of\s*india|\bcbin\b"),
 
 ]
 
@@ -63,6 +65,8 @@ IFSC_BANK_MAP = [
     ("bom", r"\bMAHB[A-Z0-9]{7}\b"),        #Bank Of Maharashtra
     ("bandhan", r"\bBDBL[A-Z0-9]{7}\b"),    #Bandhan Bank
     ("yes_bank", r"\bYESB[A-Z0-9]{7}\b"),   #Yes Bank
+    ("union_bank", r"\bUBIN[A-Z0-9]{7}\b"), # Union Bank of India
+    ("cbi", r"\bCBIN[A-Z0-9]{7}\b"),    # Central Bank of India
 ]
 
 
