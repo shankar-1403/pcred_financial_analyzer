@@ -1,5 +1,6 @@
 import re
 import pdfplumber
+from datetime import datetime
 
 from .base import (
     default_account_info,
@@ -74,6 +75,19 @@ OPEN_CLOSE_PATTERN = re.compile(
     r"(\bINR\s+[\d,\s]+\.\d{2})\s*=.*?(-?IN\s*R[\d,\s]+\.\d{2})",
     re.DOTALL | re.I
 )
+
+
+# ---------------------------------
+# DATE REFORMATTER
+# ---------------------------------
+def _reformat_date(date_str: str) -> str:
+    """Convert 'DD MON YYYY' (e.g. '01 SEP 2025') → 'DD-MM-YYYY' (e.g. '01-09-2025')."""
+    if not date_str:
+        return date_str
+    try:
+        return datetime.strptime(date_str.strip(), "%d %b %Y").strftime("%d-%m-%Y")
+    except ValueError:
+        return date_str
 
 
 # ---------------------------------
@@ -384,7 +398,7 @@ def extract_transactions(pdf_path):
     ==============================
     - Text-based PDF (pdfplumber extracts chars)
     - 6 columns: Date | Details | Ref No./Cheque No. | Debit | Credit | Balance
-    - Date format: 'DD MON YYYY' (e.g. '01 SEP 2025')
+    - Date format: 'DD MON YYYY' (e.g. '01 SEP 2025') → output as 'DD-MM-YYYY'
     - Empty cells use '-' (not blank)
     - Balance format: '-INR 6,99,69,45 8.94 Dr' (space is PDF artifact in the number)
     - Details (description) spans multiple lines within one cell (\n separated)
@@ -453,7 +467,7 @@ def extract_transactions(pdf_path):
                     balance = _clean_balance_csb(row[column_mapping.get("balance", 5)])
 
                     transactions.append({
-                        "date":        date_cell,
+                        "date":        _reformat_date(date_cell),  # DD MON YYYY → DD-MM-YYYY
                         "description": description,
                         "ref_no":      ref_no,
                         "debit":       debit,

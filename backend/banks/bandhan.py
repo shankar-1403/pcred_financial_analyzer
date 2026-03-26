@@ -19,13 +19,11 @@ IFSC_PATTERN   = r"\b(BDBL[A-Z0-9]{7})\b"
 PERIOD_PATTERN = r"[Ss]tatement\s+period\s+[Ff]rom\s+(.+?)\s+to\s+(.+)"
 
 # Date format used in Bandhan transaction rows: "April28, 2025" or "April28,2025"
-# Normalized to DD/MM/YYYY on output
 _TXN_DATE_RE = re.compile(
     r"^([A-Za-z]+)\s*(\d{1,2}),\s*(\d{4})$"
 )
 
 # Amount cells: "INR2,370.00" optionally followed by "\n<hash_overflow>"
-# Strip leading INR, take only the first line
 _INR_PREFIX_RE = re.compile(r"^INR", re.I)
 
 # Summary / footer rows to skip
@@ -55,9 +53,7 @@ def _clean_amount_bandhan(value):
     """
     if value is None:
         return None
-    # Take only first line (second line is UPI hash overflow)
     value = str(value).split("\n")[0].strip()
-    # Strip leading INR prefix
     value = _INR_PREFIX_RE.sub("", value).strip()
     if not value or value in ("-", "", "None", "null"):
         return None
@@ -73,7 +69,7 @@ def _clean_amount_bandhan(value):
 # ---------------------------------
 def _parse_txn_date(raw):
     """
-    Convert Bandhan date format 'April28, 2025' → 'DD/MM/YYYY'.
+    Convert Bandhan date format 'April28, 2025' → 'DD-MM-YYYY'.
     Returns None if not parseable.
     """
     if not raw:
@@ -88,38 +84,13 @@ def _parse_txn_date(raw):
     month_num = _MONTH_MAP.get(month_str)
     if not month_num:
         return None
-    return f"{day}/{month_num}/{year}"
+    return f"{day}-{month_num}-{year}"          # ← DD-MM-YYYY
 
 
 # ---------------------------------
 # ACCOUNT INFO EXTRACTION
 # ---------------------------------
 def extract_account_info(lines):
-    """
-    Extract account metadata from Bandhan Bank statement.
-
-    Bandhan page 1 text layout:
-
-        'Current and Savings Account Statement'
-        'ABHISHEK ANIL KOTHARI'          ← account holder name
-        'HOUSE NO 412530 ...'            ← address lines
-        ...
-        'Account Statement as on May30, 2025'
-        'Customer Account Details'
-        'Account Number 10220012711474'
-        'Account Type Current Account'
-        'Branch Details Vaijapur, 1207, ...'
-        'Customer ID / CIF 311177305'
-        'IFSC BDBL0001207'
-        'MICR Code 431750505'
-        'Nomination Registered YES'
-        'Joint Holder Names ABHISHEK ENTERPRISES'
-        'Statement period From 01 May 2024 to 30 Apr 2025'
-
-    All fields are label + value on the same line (pdfplumber table gives
-    clean 2-col key/value pairs from the Customer Account Details table).
-    We use raw text lines as fallback for fields not in the table.
-    """
     info = default_account_info()
     info["bank_name"] = BANK_DISPLAY_NAME
     info["currency"]  = "INR"
@@ -183,10 +154,12 @@ def extract_account_info(lines):
         if info["statement_request_date"] is None:
             m = re.search(r"account\s*statement\s*as\s*on\s+(.+)", line_s, re.I)
             if m:
-                info["statement_request_date"] = m.group(1).strip()
+                raw_date = m.group(1).strip()
+                # Normalise "May30, 2025" → "30-05-2025"
+                parsed = _parse_txn_date(raw_date)
+                info["statement_request_date"] = parsed if parsed else raw_date
 
     # Account holder name: first all-caps / title-case line after line 0
-    # (line 0 is "Current and Savings Account Statement", line 1 is holder name)
     _LABEL_RE = re.compile(
         r"current\s+and\s+savings|account\s+(number|type|statement|details)|"
         r"customer|branch|ifsc|micr|nomination|joint|statement\s+period",
@@ -198,7 +171,6 @@ def extract_account_info(lines):
             continue
         if line_s[0].isdigit():
             continue
-        # Must look like a name: letters, spaces, dots
         if re.match(r"^[A-Za-z][A-Za-z\s\.]{3,}$", line_s):
             info["account_holder"] = line_s
             break
@@ -210,26 +182,6 @@ def extract_account_info(lines):
 # TRANSACTION EXTRACTION
 # ---------------------------------
 def extract_transactions(pdf_path):
-    """
-    Extract all transactions from a Bandhan Bank PDF statement.
-
-    BANDHAN PDF CHARACTERISTICS:
-    ============================
-    - Text-based PDF; pdfplumber line strategy gives clean 6-column tables
-    - Page 1 has 3 tables: address block, Customer Account Details (2-col),
-      and Transactions (6-col) — identified by 6 columns
-    - Pages 2-5 have 1 transaction table each
-    - Pages 6-7 are insurance info — no transactions
-    - 6 columns per row:
-        [Transaction Date | Value Date | Description | Amount | Dr/Cr | Balance]
-    - Amount format: "INR2,370.00" with optional hash overflow on second line
-      after newline — take only first line and strip INR prefix
-    - Balance format: "INR35,461.64" — strip INR prefix
-    - Dr/Cr column: "Dr" = debit, "Cr" = credit
-    - Date format: "April28, 2025" — convert to DD/MM/YYYY
-    - Description wraps across lines (pdfplumber joins with \\n in cell)
-    - Last page has Statement Summary table below transactions — skip it
-    """
     transactions = []
 
     with pdfplumber.open(pdf_path) as pdf:
@@ -253,7 +205,6 @@ def extract_transactions(pdf_path):
                     if not row or len(row) < 6:
                         continue
 
-                    # Skip header and summary rows
                     row_text = " ".join((cell or "") for cell in row)
                     if _SKIP_ROW_RE.search(row_text):
                         continue
@@ -282,7 +233,7 @@ def _build_txn(row):
             return None
         return (row[idx] or "").strip() or None
 
-    date_raw = _cell(0)
+    date_raw  = _cell(0)
     date_norm = _parse_txn_date(date_raw)
     if not date_norm:
         return None
@@ -303,7 +254,6 @@ def _build_txn(row):
     balance_raw = _cell(5)
     balance     = _clean_amount_bandhan(balance_raw)
 
-    # Split amount into debit / credit using Dr/Cr indicator
     debit  = amount if dr_cr == "DR" else None
     credit = amount if dr_cr == "CR" else None
 

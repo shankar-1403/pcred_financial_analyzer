@@ -1,5 +1,6 @@
 import re
 import pdfplumber
+from datetime import datetime
 
 from .base import (
     default_account_info,
@@ -130,6 +131,19 @@ def _is_doubled_format(lines):
 
 
 # =============================================================================
+# DATE REFORMATTER
+# =============================================================================
+def _reformat_date(date_str: str) -> str:
+    """Convert 'DD/MM/YYYY' (e.g. '18/02/2025') → 'DD-MM-YYYY' (e.g. '18-02-2025')."""
+    if not date_str:
+        return date_str
+    try:
+        return datetime.strptime(date_str.strip(), "%d/%m/%Y").strftime("%d-%m-%Y")
+    except ValueError:
+        return date_str
+
+
+# =============================================================================
 # AMOUNT HELPERS
 # =============================================================================
 def _clean_amount_indian(value):
@@ -241,7 +255,7 @@ def _parse_txn_fmt_b(decoded_line):
         if dr_m is None:
             return None
         return {
-            "date":        date_str,
+            "date":        _reformat_date(date_str),
             "description": pre_bal[: dr_m.start()].strip(),
             "debit":       dr_val,
             "credit":      None,
@@ -257,7 +271,7 @@ def _parse_txn_fmt_b(decoded_line):
     if cr_val is not None and dr_val is None:
         # Credit transaction: desc '-' amount balance
         return {
-            "date":        date_str,
+            "date":        _reformat_date(date_str),
             "description": before_dash.strip(),
             "debit":       None,
             "credit":      cr_val,
@@ -266,7 +280,7 @@ def _parse_txn_fmt_b(decoded_line):
     elif dr_val is not None and cr_val is None:
         # Debit transaction: desc amount '-' balance
         return {
-            "date":        date_str,
+            "date":        _reformat_date(date_str),
             "description": before_dash[: dr_m.start()].strip(),
             "debit":       dr_val,
             "credit":      None,
@@ -275,7 +289,7 @@ def _parse_txn_fmt_b(decoded_line):
     elif dr_val is not None and cr_val is not None:
         # Both present (rare)
         return {
-            "date":        date_str,
+            "date":        _reformat_date(date_str),
             "description": before_dash[: dr_m.start()].strip(),
             "debit":       dr_val,
             "credit":      cr_val,
@@ -439,7 +453,7 @@ def _extract_transactions_fmt_a(pdf_path):
                     credit  = _clean_amount_indian(row[column_mapping.get("credit",  6)])
                     balance = _clean_amount_indian(row[column_mapping.get("balance", 7)])
                     transactions.append({
-                        "date":        date_cell,
+                        "date":        _reformat_date(date_cell),  # DD/MM/YYYY → DD-MM-YYYY
                         "description": description,
                         "debit":       debit,
                         "credit":      credit,

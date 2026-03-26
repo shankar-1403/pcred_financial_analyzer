@@ -1,5 +1,6 @@
 import re
 import pdfplumber
+from datetime import datetime
 
 from .base import (
     default_account_info,
@@ -85,6 +86,28 @@ ACC_TYPE_NOISE = re.compile(
     r"statement\s*(date|period|from)|address|city|state|pin",
     re.I
 )
+
+
+# =====================================
+# DATE REFORMAT — any input → DD-MM-YYYY
+# =====================================
+def _reformat_date(date_str: str) -> str:
+    """
+    Normalise AU Bank date strings to DD-MM-YYYY.
+    Handles:
+      • dd-Mon-yyyy  (28-Jun-2025)  — AU Bank's native PDF format
+      • yyyy-mm-dd   (2025-06-28)   — ISO format occasionally seen
+    Returns the original string unchanged if it cannot be parsed.
+    """
+    if not date_str:
+        return date_str
+    s = date_str.strip()
+    for fmt in ("%d-%b-%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s, fmt).strftime("%d-%m-%Y")
+        except ValueError:
+            continue
+    return s
 
 
 # =====================================
@@ -213,7 +236,6 @@ def extract_account_info(lines):
                         acc_type = next_line
 
                 # Strategy C — au2 multi-column: real value is ABOVE the label
-                # pdfplumber interleaves columns so value lands before label in line order
                 if not acc_type:
                     for back in range(1, 7):
                         if i - back < 0:
@@ -332,6 +354,9 @@ def _row_to_txn(row, column_mapping, last_txn):
     if not re.search(DATE_PATTERN, date_val):
         return None
 
+    # ── Normalise to DD-MM-YYYY ──
+    date_val = _reformat_date(date_val)
+
     txn = {
         "date":        date_val,
         "description": None,
@@ -356,7 +381,6 @@ def _row_to_txn(row, column_mapping, last_txn):
             txn["credit"] = _clean_amount_au(row[column_mapping["credit"]])
 
         # ── Pattern 2: au3 mini-statement — D/C flag + single Amount column ──
-        # Row layout: [0]TxnDate [1]ValueDate [2]Desc [3]Chq.Ref [4]D/C [5]Amount [6]RunningTotal
         if txn["debit"] is None and txn["credit"] is None:
             if len(row) >= 6:
                 dc     = str(row[4]).strip().upper()

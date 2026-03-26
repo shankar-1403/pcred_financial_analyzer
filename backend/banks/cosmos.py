@@ -14,7 +14,6 @@ BANK_DISPLAY_NAME = "The Cosmos Co-op. Bank Ltd."
 # ---------------------------------
 # REGEX PATTERNS
 # ---------------------------------
-# Cosmos IFSC prefix is COSB (not always printed in statement body, kept for robustness)
 IFSC_PATTERN   = r"\b(COSB[A-Z0-9]{7})\b"
 PERIOD_PATTERN = r"period\s+of\s+(\d{2}/\d{2}/\d{4})\s+to\s+(\d{2}/\d{2}/\d{4})"
 
@@ -35,18 +34,22 @@ _CR_SUFFIX_RE = re.compile(r"\s*cr\s*$", re.I)
 
 
 # ---------------------------------
+# DATE REFORMAT
+# ---------------------------------
+def _reformat_date(date_str: str) -> str:
+    """Convert DD/MM/YYYY → DD-MM-YYYY."""
+    if not date_str:
+        return date_str
+    return date_str.replace("/", "-")
+
+
+# ---------------------------------
 # AMOUNT CLEANER
 # ---------------------------------
 def _clean_amount_cosmos(value):
-    """
-    Handles Indian comma format: '21,521.81', '50000.00'
-    Balance cells carry a trailing ' CR' suffix which is stripped first.
-    Returns float or None. Blank / None treated as None.
-    """
     if value is None:
         return None
     value = str(value).strip()
-    # Strip balance CR suffix if present
     value = _CR_SUFFIX_RE.sub("", value).strip()
     if not value or value in ("-", "", "None", "null"):
         return None
@@ -61,63 +64,45 @@ def _clean_amount_cosmos(value):
 # ACCOUNT INFO EXTRACTION
 # ---------------------------------
 def extract_account_info(lines):
-    """
-    Extract account metadata from Cosmos Co-op Bank statement text lines.
-
-    Actual pdfplumber text layout (first 5 lines of every page):
-
-        line 0: "Statement of account for the period of 01/01/2024 to 30/06/2024 14-Jan-2025"
-        line 1: "Customer Id 1222386"
-        line 2: "Account Number 122100101410"
-        line 3: "Account Holder Name AALEKH ASSOCIATES"
-        line 4: "Date Transaction Particulars Cheque No. Withdrawal Deposit Available Balance"
-
-    All fields are label + value on the SAME line — not separate lines.
-    No IFSC, no branch, no MICR printed in this statement.
-    """
     info = default_account_info()
     info["bank_name"] = BANK_DISPLAY_NAME
     info["currency"]  = "INR"
 
     full_text = "\n".join(lines)
 
-    # Statement period — from line 0
+    # Statement period — reformat both dates
     m = re.search(PERIOD_PATTERN, full_text, re.I)
     if m:
-        info["statement_period"]["from"] = m.group(1)
-        info["statement_period"]["to"]   = m.group(2)
+        info["statement_period"]["from"] = _reformat_date(m.group(1))
+        info["statement_period"]["to"]   = _reformat_date(m.group(2))
 
-    # Statement request date — also on line 0: "...to 30/06/2024 14-Jan-2025"
+    # Statement request date — "14-Jan-2025" (already dash-separated, keep as-is)
     m = _REQ_DATE_RE.search(full_text)
     if m:
         info["statement_request_date"] = m.group()
 
-    # IFSC (rarely present; kept for robustness)
+    # IFSC
     m = re.search(IFSC_PATTERN, full_text)
     if m:
         info["ifsc"] = m.group(1)
 
-    # Parse only the first 5 lines — all account metadata lives there
     for line in lines[:5]:
         line_s = (line or "").strip()
         if not line_s:
             continue
 
-        # "Customer Id 1222386"
         if info["customer_id"] is None:
             m = re.search(r"customer\s*id\s+(\d+)", line_s, re.I)
             if m:
                 info["customer_id"] = m.group(1)
                 continue
 
-        # "Account Number 122100101410"
         if info["account_number"] is None:
             m = re.search(r"account\s*number\s+(\d+)", line_s, re.I)
             if m:
                 info["account_number"] = m.group(1)
                 continue
 
-        # "Account Holder Name AALEKH ASSOCIATES"
         if info["account_holder"] is None:
             m = re.search(r"account\s*holder\s*name\s+(.+)", line_s, re.I)
             if m:
@@ -131,26 +116,10 @@ def extract_account_info(lines):
 # TRANSACTION EXTRACTION
 # ---------------------------------
 def extract_transactions(pdf_path):
-    """
-    Extract all transactions from a Cosmos Co-op Bank PDF statement.
-
-    COSMOS PDF CHARACTERISTICS:
-    ===========================
-    - Text-based PDF (pdfplumber line strategy works reliably)
-    - 6 columns per row:
-        [Date | Transaction Particulars | Cheque No. | Withdrawal | Deposit | Available Balance]
-    - Separate Withdrawal (debit) and Deposit (credit) columns; no DR/CR indicator column
-    - Balance always formatted as "XXXXX.XX CR" — strip " CR" suffix before parsing
-    - Blank Withdrawal / Deposit cell means no movement on that side
-    - Continuation rows: long narrations overflow onto the next PDF row with ONLY
-      a description fragment and no date / amounts — append fragment to last txn
-    - Footer rows to skip: "Sub Total", "GrandTotal", "**** END OF STATEMENT ****"
-    """
-    transactions = []
+    transactions   = []
     column_mapping = None
     last_txn       = None
 
-    # Cosmos-specific column aliases passed to detect_columns()
     cosmos_header_map = {
         "date": [
             "date",
@@ -199,31 +168,26 @@ def extract_transactions(pdf_path):
                     if not row:
                         continue
 
-                    # Skip entirely blank rows
                     if all((cell or "").strip() == "" for cell in row):
                         continue
 
-                    # Skip footer / summary rows
                     row_text = " ".join((cell or "") for cell in row)
                     if _SKIP_ROW_RE.search(row_text):
                         continue
 
-                    # Normalise cells for header detection
                     row_lower = [
                         (cell or "").replace("\n", " ").strip().lower()
                         for cell in row
                     ]
 
-                    # Detect (or re-detect on new page) column mapping from header row
                     detected = detect_columns(row_lower, cosmos_header_map)
                     if detected and "date" in detected:
                         column_mapping = detected
-                        continue  # this is the header row — not a transaction
+                        continue
 
                     if column_mapping is None:
                         continue
 
-                    # Continuation row: description overflow, no date or amounts
                     if _is_continuation(row, column_mapping):
                         if last_txn is not None and "description" in column_mapping:
                             desc_idx = column_mapping["description"]
@@ -235,7 +199,6 @@ def extract_transactions(pdf_path):
                                     ).strip()
                         continue
 
-                    # Regular transaction row
                     txn = _build_txn(row, column_mapping)
                     if txn:
                         transactions.append(txn)
@@ -248,12 +211,6 @@ def extract_transactions(pdf_path):
 # HELPERS
 # ---------------------------------
 def _is_continuation(row, col):
-    """
-    A continuation row carries only a description fragment — no date,
-    no withdrawal, no deposit, no balance.
-    Example: the isolated cell "MOS" that overflows from "IMPS/.../BKID/COS"
-    on the previous row (page 5 of the Cosmos statement).
-    """
     def _get(key):
         idx = col.get(key)
         return (row[idx] or "").strip() if idx is not None and idx < len(row) else ""
@@ -265,8 +222,8 @@ def _is_continuation(row, col):
 
 def _build_txn(row, col):
     """
-    Build one transaction dict from a table row using column_mapping.
-    Returns None if the row does not contain a valid DD/MM/YYYY date.
+    Columns: [Date, Transaction Particulars, Cheque No., Withdrawal, Deposit, Available Balance]
+    Date input: DD/MM/YYYY → output: DD-MM-YYYY
     """
     def _get(key):
         idx = col.get(key)
@@ -288,10 +245,10 @@ def _build_txn(row, col):
     balance   = _clean_amount_cosmos(_get("balance"))
 
     return {
-        "date":        date_raw,
+        "date":        _reformat_date(date_raw),   # DD/MM/YYYY → DD-MM-YYYY
         "description": desc,
         "cheque_no":   cheque_no,
         "debit":       debit,
         "credit":      credit,
         "balance":     balance,
-    }   
+    }

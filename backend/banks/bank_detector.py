@@ -26,6 +26,8 @@ BANK_SIGNATURES = [
     ("cosmos", r"cosmos", r"cosmos\s*co[\s-]*op|the\s*cosmos"),
     ("bom", r"\bbom\b|bank\s*of\s*maharashtra|mahabank", r"bank\s*of\s*maharashtra|mahb"),
     ("bandhan", r"bandhan", r"bandhan\s*bank"),
+    ("yes_bank", r"yes[\s_-]*bank|\byesb\b", r"yes\s*bank|\byesb\b"),
+
 ]
 
 def detect_bank_from_filename(file_path: str) -> Optional[str]:
@@ -60,6 +62,7 @@ IFSC_BANK_MAP = [
     ("cosmos", r"\bCOSB[A-Z0-9]{7}\b"),     #Cosmos Bank
     ("bom", r"\bMAHB[A-Z0-9]{7}\b"),        #Bank Of Maharashtra
     ("bandhan", r"\bBDBL[A-Z0-9]{7}\b"),    #Bandhan Bank
+    ("yes_bank", r"\bYESB[A-Z0-9]{7}\b"),   #Yes Bank
 ]
 
 
@@ -93,14 +96,14 @@ def detect_bank_from_text(lines):
     # Strict header: only first N lines — "HDFC Bank" here = statement bank; in txns = ignore
     header_only = " ".join((line or "") for line in lines[:_HEADER_ONLY_LINES]).lower()
 
-    if "saraswat" in header_wide_lower or re.search(r"\bsrcb\b", header_wide_lower):
-        return "saraswat"
-    if re.search(r"\b810000000\d{6}\b", header_wide_lower):
-        return "saraswat"
+    # if "saraswat" in header_wide_lower or re.search(r"\bsrcb\b", header_wide_lower):
+    #     return "saraswat"
+    # if re.search(r"\b810000000\d{6}\b", header_wide_lower):
+    #     return "saraswat"
     
-    # FIX 3 continued: Check Standard Chartered by name BEFORE the IFSC scan, because SCB puts "STANDARD CHARTERED BANK" on line 1 but UTIB (Axis) IFSCs
-    if "standard chartered" in header_wide_lower or re.search(r"\bscbl\b", header_wide_lower):
-        return "standard_chartered"
+    # # FIX 3 continued: Check Standard Chartered by name BEFORE the IFSC scan, because SCB puts "STANDARD CHARTERED BANK" on line 1 but UTIB (Axis) IFSCs
+    # if "standard chartered" in header_wide_lower or re.search(r"\bscbl\b", header_wide_lower):
+    #     return "standard_chartered"
 
     # 1) IFSC in statement (IndusInd INDB checked before HDFC so we don't mis-id from txn text)
     for key, pattern in IFSC_BANK_MAP:
