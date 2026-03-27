@@ -19,16 +19,21 @@ BANK_SIGNATURES = [
     ("canara", r"canara", r"canara\s*bank|cnrb"),
     ("federal", r"federal", r"federal\s*bank|fdrl"),
     ("indian", r"indian\s*bank|\bidib\b", r"indian\s*bank|\bidib\b"),
-    ("saraswat",
-    r"saraswat",
-    r"saraswat\s*co[\s-]*operative\s*bank|saraswat\s*bank|\bsrcb\b|8100000000\d{5}"),
-    ("standard_chartered", r"standard[\s_-]*charter|stadard[\s_-]*charter", r"standard\s*chartered\s*(bank)?"),
+    ("standard_chartered",
+    r"standard[\s_-]*charter|stadard[\s_-]*charter",
+    r"standard\s*chartered\s*(bank)?"),
     ("cosmos", r"cosmos", r"cosmos\s*co[\s-]*op|the\s*cosmos"),
     ("bom", r"\bbom\b|bank\s*of\s*maharashtra|mahabank", r"bank\s*of\s*maharashtra|mahb"),
     ("bandhan", r"bandhan", r"bandhan\s*bank"),
     ("yes_bank", r"yes[\s_-]*bank|\byesb\b", r"yes\s*bank|\byesb\b"),
     ("union_bank", r"union[\s_-]*bank|ubin", r"union\s*bank\s*of\s*india|\bubin\b"),
     ("cbi", r"central[\s_-]*bank|cbi|\bcbin\b", r"central\s*bank\s*of\s*india|\bcbin\b"),
+    ("dcb", r"dcb", r"dcb\s*bank|development\s*credit\s*bank|dcbl"),
+    ("pnb", r"pnb|punjab[\s_-]*national|punb", r"punjab\s*national\s*bank|\bpunb\b"),
+    ("idfc", r"idfc", r"idfc\s*first\s*bank|idfb"),
+    ("idbi", r"idbi", r"idbi\s*bank|industrial\s+development\s+bank"),
+    ("rbl", r"rbl[\s_-]*bank|rbl", r"rbl\s*bank|\bratn\b"),
+    ("karnataka",r"karnataka\s*bank|karb|your\s+family\s+bank",r"karnataka\s*bank\s*ltd|karb[a-z0-9]{7}"),
 
 ]
 
@@ -66,7 +71,13 @@ IFSC_BANK_MAP = [
     ("bandhan", r"\bBDBL[A-Z0-9]{7}\b"),    #Bandhan Bank
     ("yes_bank", r"\bYESB[A-Z0-9]{7}\b"),   #Yes Bank
     ("union_bank", r"\bUBIN[A-Z0-9]{7}\b"), # Union Bank of India
-    ("cbi", r"\bCBIN[A-Z0-9]{7}\b"),    # Central Bank of India
+    ("cbi", r"\bCBIN[A-Z0-9]{7}\b"),        # Central Bank of India
+    ("dcb", r"\bDCBL[A-Z0-9]{7}\b"),        #DCB Bank
+    ("pnb", r"\bPUNB[A-Z0-9]{7}\b"),        # Punjab National Bank
+    ("idfc", r"\bIDFB[A-Z0-9]{7}\b"),       #IDFC Bank
+    ("idbi", r"\bIBKL[A-Z0-9]{7}\b"),       #IDBI Bank
+    ("karnataka", r"\bKARB[A-Z0-9]{7}\b"),  #KBL Bank
+    ("rbl", r"\bRATN[A-Z0-9]{7}\b"),        #RBL Bank
 ]
 
 
@@ -105,9 +116,10 @@ def detect_bank_from_text(lines):
     # if re.search(r"\b810000000\d{6}\b", header_wide_lower):
     #     return "saraswat"
     
-    # # FIX 3 continued: Check Standard Chartered by name BEFORE the IFSC scan, because SCB puts "STANDARD CHARTERED BANK" on line 1 but UTIB (Axis) IFSCs
-    # if "standard chartered" in header_wide_lower or re.search(r"\bscbl\b", header_wide_lower):
-    #     return "standard_chartered"
+    # # SCB must be first — its statements contain UTIB (Axis) IFSCs in txn descriptions
+    if "standard chartered" in header_wide_lower or re.search(r"\bscbl\b", header_wide_lower):
+        return "standard_chartered"
+
 
     # 1) IFSC in statement (IndusInd INDB checked before HDFC so we don't mis-id from txn text)
     for key, pattern in IFSC_BANK_MAP:
@@ -133,6 +145,14 @@ def detect_bank_from_text(lines):
     # 5) HDFC only if "hdfc bank" is in the statement header (first 25 lines), not in a txn
     if "hdfc bank" in header_only:
         return "hdfc"
+    
+    if re.search(r"general\s+details", header_wide, re.I) and \
+   re.search(r"\b(47\d{8}|10\d{8})\b", header_wide):
+        return "karnataka"
+    if re.search(r"\bKARB[A-Z0-9]{7}\b", header_wide):
+        return "karnataka"
+    if re.search(r"karnataka\s*bank|your\s+family\s+bank", header_wide, re.I):
+        return "karnataka"
 
     if "state bank of india" in header_wide_lower or "sbi" in header_wide_lower:
         return "sbi"
@@ -154,6 +174,9 @@ def detect_bank_from_text(lines):
     
     if "indian bank" in header_wide_lower or re.search(r"\bidib\b", header_wide_lower):
         return "indian"
+    
+    if "rbl bank" in header_wide_lower or re.search(r"\bratn\b", header_wide_lower):
+        return "rbl"
     
     if "cosmos co-op" in header_wide_lower \
             or "cosmos co op" in header_wide_lower \

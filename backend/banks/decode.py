@@ -3,14 +3,14 @@ import os
 sys.path.insert(0, "D:\\Pcred_BankStats_Proj\\pcred_financial_analyzer\\backend")
 
 # ── TEST 1: Which saraswat.py is actually loaded ──────────────────────
-import banks.saraswat as sw
-print(f"[1] saraswat.py path  : {sw.__file__}")
+import banks.karnataka as sw
+print(f"[1] karnatak.py path  : {sw.__file__}")
 print(f"[2] has TXN_LINE_RE   : {hasattr(sw, 'TXN_LINE_RE')}")
 print(f"[3] BANK_DISPLAY_NAME : {sw.BANK_DISPLAY_NAME}")
 
 # ── TEST 2: What ocr_engine returns ──────────────────────────────────
 from ocr_engine import extract_text_from_pdf
-pdf = "D:\\BankStats&GST3B\\saraswat2.pdf"
+pdf = "d:/BankStats&GST3B/kbl.pdf"
 lines = extract_text_from_pdf(pdf)
 print(f"\n[4] ocr_engine line count : {len(lines)}")
 print(f"[5] First 10 lines:")

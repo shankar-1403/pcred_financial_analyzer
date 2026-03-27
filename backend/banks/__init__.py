@@ -8,7 +8,7 @@ _BANK_MODULES = {}
 
 def _get_bank_module(bank_key: str):
     if not _BANK_MODULES:
-        from . import icici, sbi, axis_neo, axis, hdfc, kotak, indusind, au, boi, bob, csb, kokan, canara, federal, indian, saraswat, standard_chartered, cosmos, bom, bandhan, yes_bank, union_bank, cbi, generic
+        from . import icici, sbi, axis_neo, axis, hdfc, kotak, indusind, au, boi, bob, csb, kokan, canara, federal, indian, saraswat, standard_chartered, cosmos, bom, bandhan, yes_bank, union_bank, cbi, pnb, idfc, dcb, idbi, karnataka, rbl,  generic
         _BANK_MODULES["axis neo"] = axis_neo
         _BANK_MODULES["axis"] = axis
         _BANK_MODULES["icici"] = icici
@@ -32,6 +32,12 @@ def _get_bank_module(bank_key: str):
         _BANK_MODULES["yes_bank"] = yes_bank
         _BANK_MODULES["union_bank"] = union_bank
         _BANK_MODULES["cbi"] = cbi
+        _BANK_MODULES["pnb"] = pnb
+        _BANK_MODULES["idfc"] = idfc
+        _BANK_MODULES["dcb"] = dcb
+        _BANK_MODULES["idbi"] = idbi
+        _BANK_MODULES["karnataka"] = karnataka
+        _BANK_MODULES["rbl"] = rbl
         _BANK_MODULES["generic"] = generic
     return _BANK_MODULES.get(bank_key) or _BANK_MODULES["generic"]
 
