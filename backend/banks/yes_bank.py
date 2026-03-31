@@ -1,13 +1,16 @@
 import re
 import pdfplumber
+from datetime import datetime
 from collections import defaultdict
 from .base import (
     default_account_info,
     clean_amount,
 )
 
+
 BANK_KEY = "yes_bank"
 BANK_DISPLAY_NAME = "YES Bank"
+
 
 # ---------------------------------------------------------------------------
 # Column x-boundaries (derived from PDF word-position inspection)
@@ -44,7 +47,6 @@ _HEADER_WORDS = {
 def _reformat_date(date_str: str) -> str:
     """Convert YYYY-MM-DD (Yes Bank PDF format) to DD-MM-YYYY."""
     try:
-        from datetime import datetime
         return datetime.strptime(date_str, "%Y-%m-%d").strftime("%d-%m-%Y")
     except (ValueError, TypeError):
         return date_str
@@ -63,6 +65,14 @@ def _is_header_word(text):
     return text.lower() in _HEADER_WORDS
 
 
+def _sort_key(txn: dict):
+    """Parse DD-MM-YYYY for chronological sort. Unparseable dates sort last."""
+    try:
+        return datetime.strptime(txn["date"], "%d-%m-%Y")
+    except (ValueError, TypeError, KeyError):
+        return datetime.max
+
+
 # ---------------------------------------------------------------------------
 # Account info extraction
 # ---------------------------------------------------------------------------
@@ -71,25 +81,30 @@ def extract_account_info(lines):
     info = default_account_info()
     info["bank_name"] = BANK_DISPLAY_NAME
 
-    full_text = " ".join(line for line in lines if line)
+    # FIX: Use newline join to preserve multi-space field boundaries
+    full_text = "\n".join(line for line in lines if line)
+    full_text_space = " ".join(line for line in lines if line)  # for single-line patterns
 
     # Account number — "Statement of account : 000263700005130"
-    m = re.search(r"statement\s+of\s+account\s*[:\-]\s*(\d{9,18})", full_text, re.I)
+    m = re.search(
+        r"(?:statement\s+of\s+account|account\s+(?:no|number))\s*[:\-\.#]?\s*(\d{9,18})",
+        full_text_space, re.I
+    )
     if m:
         info["account_number"] = m.group(1).strip()
 
     # Statement period — "01 Apr 2025 - 29 Jun 2025"
     m = re.search(
-        r"(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\s*[-\u2013to]+\s*(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})",
-        full_text, re.I,
+        r"(\d{1,2}[\s\-][A-Za-z]{3}[\s\-]\d{4})\s*(?:to|[-\u2013]+)\s*(\d{1,2}[\s\-][A-Za-z]{3}[\s\-]\d{4})",
+        full_text_space, re.I,
     )
     if m:
         info["statement_period"]["from"] = m.group(1).strip()
         info["statement_period"]["to"]   = m.group(2).strip()
 
-    # Customer name — between "Customer Name :" and next label
+    # Customer name — FIX: use newline as boundary instead of \s{2,}
     m = re.search(
-        r"customer\s+name\s*[:\-]\s*([\w\s\.&]+?)(?=\s{2,}|\baddress\b|\bbranch\b|\bmobile\b|\bemail\b|\bcust\b)",
+        r"customer\s+name\s*[:\-]\s*([\w\s\.&]+?)(?:\n|\r|(?=\s{2,})|\baddress\b|\bbranch\b|\bmobile\b|\bemail\b|\bcust\b)",
         full_text, re.I,
     )
     if m:
@@ -98,43 +113,43 @@ def extract_account_info(lines):
     # Fallback: Primary Holder line
     if not info["account_holder"]:
         m = re.search(
-            r"primary\s+holder\s+([\w\s\.&]+?)(?=\s{2,}|\bnominee\b|\baccount\b)",
+            r"primary\s+holder\s+([\w\s\.&]+?)(?:\n|\r|\bnominee\b|\baccount\b)",
             full_text, re.I,
         )
         if m:
             info["account_holder"] = m.group(1).strip()
 
-    # Branch
+    # Branch — FIX: newline boundary
     m = re.search(
-        r"branch\s+name\s*[:\-]\s*([A-Za-z0-9\s,]+?)(?=\s{2,}|\baddress\b|\bifsc\b)",
+        r"branch\s+name\s*[:\-]\s*([A-Za-z0-9\s,]+?)(?:\n|\r|(?=\s{2,})|\baddress\b|\bifsc\b)",
         full_text, re.I,
     )
     if m:
         info["branch"] = m.group(1).strip()
 
-    # IFSC  — "YESB0000002"
-    m = re.search(r"ifsc\s*code\s*[:\-]\s*(YESB[A-Z0-9]{7})", full_text, re.I)
+    # IFSC — "YESB0000002"
+    m = re.search(r"ifsc\s*(?:code)?\s*[:\-]\s*(YESB[A-Z0-9]{7})", full_text_space, re.I)
     if m:
         info["ifsc"] = m.group(1).strip()
     else:
-        m = re.search(r"\b(YESB[A-Z0-9]{7})\b", full_text)
+        m = re.search(r"\b(YESB[A-Z0-9]{7})\b", full_text_space)
         if m:
             info["ifsc"] = m.group(1).strip()
 
     # MICR
-    m = re.search(r"micr\s*code\s*[:\-]?\s*(\d{9})", full_text, re.I)
+    m = re.search(r"micr\s*(?:code)?\s*[:\-]?\s*(\d{9})", full_text_space, re.I)
     if m:
         info["micr"] = m.group(1).strip()
 
     # Customer ID
-    m = re.search(r"cust\s*id\s*[:\-]?\s*(\d+)", full_text, re.I)
+    m = re.search(r"cust(?:omer)?\s*(?:id|no)\s*[:\-]?\s*(\d+)", full_text_space, re.I)
     if m:
         info["customer_id"] = m.group(1).strip()
 
     info["currency"] = "INR"
 
     # Account type (CA/SA)
-    m = re.search(r"\(([A-Z]{2,4}/[A-Z]{2,4})\s+product\s+name\)", full_text, re.I)
+    m = re.search(r"\(([A-Z]{2,4}/[A-Z]{2,4})\s+product\s+name\)", full_text_space, re.I)
     if m:
         info["acc_type"] = m.group(1).strip()
 
@@ -142,23 +157,18 @@ def extract_account_info(lines):
 
 
 # ---------------------------------------------------------------------------
-# Transaction extraction  —  word-position based
+# Transaction extraction — word-position based
 # ---------------------------------------------------------------------------
 
 def extract_transactions(pdf_path: str):
     """
     Extract transactions from a Yes Bank PDF statement.
 
-    pdfplumber's table extractor (lines strategy) misses the per-transaction
-    horizontal separators inside Yes Bank's layout: each page shows 4
-    transactions but only the first one gets date/balance values via the
-    table approach.
-
-    Instead we work directly with word bounding-boxes:
-      • Every line that has a YYYY-MM-DD word in the 'date' x-band starts
-        a new transaction and carries amounts / balance on the same line.
-      • Continuation lines (no date word) extend the description / ref of
-        the current transaction.
+    Yes Bank PDFs are laid out newest-page-first (page 1 = most recent txns).
+    We collect all transactions in extraction order, then:
+      1. reverse()  → oldest page first, preserving within-page sequence
+      2. stable sort by date → correct chronological order (oldest → newest)
+         without scrambling same-day transaction order.
     """
     transactions = []
 
@@ -258,6 +268,14 @@ def extract_transactions(pdf_path: str):
 
             if current_txn:
                 transactions.append(_finalise(current_txn))
+
+    # ----------------------------------------------------------------
+    # FIX: PDF pages are newest-first → reverse to get oldest-first,
+    # then stable-sort by date to handle any cross-page date overlaps.
+    # Stable sort preserves within-page sequence for same-day txns.
+    # ----------------------------------------------------------------
+    transactions.reverse()
+    transactions = sorted(transactions, key=_sort_key)
 
     return transactions
 

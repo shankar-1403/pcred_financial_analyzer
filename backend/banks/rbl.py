@@ -2,6 +2,7 @@ import re
 import pdfplumber
 from collections import defaultdict
 from datetime import datetime
+from itertools import groupby
 
 from .base import (
     default_account_info,
@@ -40,6 +41,15 @@ BANK_DISPLAY_NAME = "RBL Bank"
 # Account info: page 1 header text (no structured sub-table).
 #   Account Name / CIF ID / A/C Type / A/c Status / Account Number / Period
 #   Opening/Closing balance from the "Statement Summary" block (last page).
+#
+# SORT ORDER:
+#   RBL PDF is printed newest-first (13/06 at top, 20/05 at bottom).
+#   Steps:
+#     1. Collect transactions in PDF order (newest-first).
+#     2. reverse() → oldest-first (preserves intra-day PDF order within each date).
+#     3. stable sort by date → correct chronological order.
+#     4. For each same-date group, use balance chain to fix intra-day order.
+#     5. Assign row_id: 1 = oldest, N = newest.
 # =============================================================================
 
 
@@ -144,6 +154,60 @@ def _sort_key(txn: dict):
         return datetime.strptime(txn["date"], "%d-%m-%Y")
     except (ValueError, TypeError, KeyError):
         return datetime.max
+
+
+def _order_same_date_group(group: list[dict]) -> list[dict]:
+    """
+    For same-date transactions, reconstruct correct order using balance chain.
+
+    Each transaction's balance is the AFTER balance.
+    So: txn[n].prev_balance = txn[n].balance + debit - credit
+    The first transaction in the sequence is the one whose prev_balance
+    does not match any other transaction's after-balance.
+
+    Fallback: if chain is broken (e.g. duplicate amounts cause ambiguity),
+    the remaining transactions are appended in their current order.
+    """
+    if len(group) == 1:
+        return group
+
+    all_balances = {round(t["balance"], 2) for t in group if t["balance"] is not None}
+
+    # Find the first txn: its prev_balance is not in any other txn's balance set
+    first = None
+    for txn in group:
+        debit    = txn["debit"]  or 0
+        credit   = txn["credit"] or 0
+        prev_bal = round((txn["balance"] or 0) + debit - credit, 2)
+        if prev_bal not in all_balances:
+            first = txn
+            break
+
+    if first is None:
+        # Can't determine chain start — return as-is (reversed PDF order = best guess)
+        return group
+
+    ordered   = [first]
+    remaining = [t for t in group if t is not first]
+
+    while remaining:
+        last_bal = round(ordered[-1]["balance"], 2)
+        matched  = False
+        for txn in remaining:
+            debit    = txn["debit"]  or 0
+            credit   = txn["credit"] or 0
+            prev_bal = round((txn["balance"] or 0) + debit - credit, 2)
+            if prev_bal == last_bal:
+                ordered.append(txn)
+                remaining.remove(txn)
+                matched = True
+                break
+        if not matched:
+            # Chain broken — append rest in current order
+            ordered.extend(remaining)
+            break
+
+    return ordered
 
 
 # =============================================================================
@@ -271,6 +335,15 @@ def extract_transactions(pdf_path: str) -> list[dict]:
         the midpoint-above and midpoint-below.
     7.  Classify each word into its column by x0 position.
     8.  Build the transaction dict from classified words.
+
+    SORT ORDER:
+    -----------
+    RBL PDF is printed newest-first. Steps to get correct chronological order:
+      1. Collect in PDF order (newest-first).
+      2. reverse() → oldest-first, preserving intra-day PDF sequence.
+      3. stable sort by date → correct cross-date order.
+      4. Balance chain fix for each same-date group.
+      5. Assign row_id: 1 = oldest, N = newest.
     """
     transactions: list[dict] = []
 
@@ -330,8 +403,37 @@ def extract_transactions(pdf_path: str) -> list[dict]:
                 txn = _build_txn(band_words, date_str)
                 if txn:
                     transactions.append(txn)
-    
+
+    # ------------------------------------------------------------------
+    # Step 1: reverse — PDF is newest-first, so reversing gives
+    #         oldest-first while preserving intra-day PDF sequence.
+    # ------------------------------------------------------------------
+    transactions.reverse()
+
+    # ------------------------------------------------------------------
+    # Step 2: stable sort by date — same-date txns keep the order from
+    #         Step 1 (reversed PDF order) as their initial sequence.
+    # ------------------------------------------------------------------
     transactions.sort(key=_sort_key)
+
+    # ------------------------------------------------------------------
+    # Step 3: fix same-date ordering using balance chain.
+    #         This is the authoritative tiebreaker — more reliable than
+    #         PDF position for intra-day sequencing.
+    # ------------------------------------------------------------------
+    final: list[dict] = []
+    for _, grp in groupby(transactions, key=lambda t: t["date"]):
+        final.extend(_order_same_date_group(list(grp)))
+    transactions = final
+
+    # ------------------------------------------------------------------
+    # Step 4: assign row_id — 1 = oldest, N = newest.
+    #         _normalize_df_with_rowid does the same thing, but we assign
+    #         here too so callers that work with the raw list also get it.
+    # ------------------------------------------------------------------
+    for i, txn in enumerate(transactions, 1):
+        txn["row_id"] = i
+
     return transactions
 
 

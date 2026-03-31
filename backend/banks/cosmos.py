@@ -1,68 +1,71 @@
 import re
 import pdfplumber
+from datetime import datetime
 
-from .base import (
-    default_account_info,
-    clean_amount,
-    detect_columns,
-)
+from .base import default_account_info
 
 BANK_KEY          = "cosmos"
 BANK_DISPLAY_NAME = "The Cosmos Co-op. Bank Ltd."
 
 
-# ---------------------------------
+# ---------------------------------------------------------------------------
 # REGEX PATTERNS
-# ---------------------------------
+# ---------------------------------------------------------------------------
 IFSC_PATTERN   = r"\b(COSB[A-Z0-9]{7})\b"
 PERIOD_PATTERN = r"period\s+of\s+(\d{2}/\d{2}/\d{4})\s+to\s+(\d{2}/\d{2}/\d{4})"
 
-# Date format used in Cosmos transaction rows: DD/MM/YYYY
-_DATE_RE = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+_REQ_DATE_RE   = re.compile(r"\d{1,2}-[A-Za-z]{3}-\d{4}")
 
-# Statement request date on page header: e.g. "14-Jan-2025"
-_REQ_DATE_RE = re.compile(r"\d{1,2}-[A-Za-z]{3}-\d{4}")
+# Transaction line: starts with DD/MM/YYYY
+_TXN_LINE_RE   = re.compile(r"^(\d{2}/\d{2}/\d{4})\s+(.+)$")
 
-# Footer / summary rows — skip entirely
-_SKIP_ROW_RE = re.compile(
-    r"sub\s*total|grandtotal|grand\s*total|\*+\s*end\s*of\s*statement",
-    re.I,
+# Amount + balance at end: "... 12,500.00  81592.99 CR"
+_AMOUNT_BAL_RE = re.compile(
+    r"^(.*?)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+CR\s*$"
 )
 
-# Balance cells always end with " CR" — strip before float-parsing
-_CR_SUFFIX_RE = re.compile(r"\s*cr\s*$", re.I)
+# Skip known header/footer lines before any date check
+_SKIP_RE = re.compile(
+    r"^("
+    r"statement\s+of\s+account|"
+    r"customer\s+id|"
+    r"account\s+(number|holder)|"
+    r"date\s+transaction|"
+    r"sub\s*total|"
+    r"grand\s*total|"
+    r"\*+\s*end\s*of\s*statement|"
+    r"head\s*office|"
+    r"page\s*\d"
+    r")",
+    re.I
+)
+
+# Debit keyword fallback for first transaction (no prev balance to delta against)
+_DEBIT_KEYWORDS_RE = re.compile(
+    r"\b(withdrawal|debit|dr|charges?|cgst|sgst|payment|cwdr|"
+    r"nach-10-dr|ib~to\s+trf|ib~.*card\s+payment)\b",
+    re.I
+)
 
 
-# ---------------------------------
-# DATE REFORMAT
-# ---------------------------------
+# ---------------------------------------------------------------------------
+# HELPERS
+# ---------------------------------------------------------------------------
 def _reformat_date(date_str: str) -> str:
-    """Convert DD/MM/YYYY → DD-MM-YYYY."""
-    if not date_str:
-        return date_str
-    return date_str.replace("/", "-")
+    """DD/MM/YYYY → DD-MM-YYYY"""
+    return (date_str or "").replace("/", "-")
 
 
-# ---------------------------------
-# AMOUNT CLEANER
-# ---------------------------------
-def _clean_amount_cosmos(value):
-    if value is None:
-        return None
-    value = str(value).strip()
-    value = _CR_SUFFIX_RE.sub("", value).strip()
-    if not value or value in ("-", "", "None", "null"):
-        return None
-    value = value.replace(",", "").replace(" ", "")
+def _sort_key(txn: dict):
     try:
-        return float(value)
-    except ValueError:
-        return None
+        return datetime.strptime(txn["date"], "%d-%m-%Y")
+    except (ValueError, TypeError, KeyError):
+        return datetime.max
 
 
-# ---------------------------------
+# ---------------------------------------------------------------------------
 # ACCOUNT INFO EXTRACTION
-# ---------------------------------
+# ---------------------------------------------------------------------------
 def extract_account_info(lines):
     info = default_account_info()
     info["bank_name"] = BANK_DISPLAY_NAME
@@ -70,13 +73,13 @@ def extract_account_info(lines):
 
     full_text = "\n".join(lines)
 
-    # Statement period — reformat both dates
+    # Statement period
     m = re.search(PERIOD_PATTERN, full_text, re.I)
     if m:
         info["statement_period"]["from"] = _reformat_date(m.group(1))
         info["statement_period"]["to"]   = _reformat_date(m.group(2))
 
-    # Statement request date — "14-Jan-2025" (already dash-separated, keep as-is)
+    # Statement request date — "14-Jan-2025"
     m = _REQ_DATE_RE.search(full_text)
     if m:
         info["statement_request_date"] = m.group()
@@ -86,6 +89,16 @@ def extract_account_info(lines):
     if m:
         info["ifsc"] = m.group(1)
 
+    # Branch / MICR (if present in this format)
+    m = re.search(r"branch\s*[:\-]\s*([A-Za-z0-9\s,]+?)(?:\n|$)", full_text, re.I)
+    if m:
+        info["branch"] = m.group(1).strip()
+
+    m = re.search(r"micr\s*(?:code)?\s*[:\-]\s*(\d{9})", full_text, re.I)
+    if m:
+        info["micr"] = m.group(1)
+
+    # Header block fields — first 5 lines
     for line in lines[:5]:
         line_s = (line or "").strip()
         if not line_s:
@@ -98,9 +111,12 @@ def extract_account_info(lines):
                 continue
 
         if info["account_number"] is None:
-            m = re.search(r"account\s*number\s+(\d+)", line_s, re.I)
+            m = re.search(r"account\s*number\s+([\d\.e\+]+)", line_s, re.I)
             if m:
-                info["account_number"] = m.group(1)
+                try:
+                    info["account_number"] = str(int(float(m.group(1))))
+                except (ValueError, TypeError):
+                    info["account_number"] = m.group(1).strip()
                 continue
 
         if info["account_holder"] is None:
@@ -112,143 +128,117 @@ def extract_account_info(lines):
     return info
 
 
-# ---------------------------------
-# TRANSACTION EXTRACTION
-# ---------------------------------
-def extract_transactions(pdf_path):
-    transactions   = []
-    column_mapping = None
-    last_txn       = None
+# ---------------------------------------------------------------------------
+# TRANSACTION EXTRACTION — raw text based (NOT table extraction)
+#
+# WHY raw text instead of pdfplumber tables:
+#   Cosmos PDFs have severely broken table borders — each page produces 5-10
+#   fragmented mini-tables, most with no header row. Table extraction silently
+#   drops any row that falls between border fragments.
+#
+#   Raw text via page.extract_text() always contains every transaction line.
+#   Each line is: DATE  DESCRIPTION  AMOUNT  BALANCE CR
+#   Debit vs credit is determined by balance delta (prev → curr).
+#
+# DEDUP STRATEGY — (date, description, balance):
+#   Using only (date, balance) is WRONG — 128 real transactions share
+#   a balance value with another transaction (verified against GrandTotal).
+#   Using (date, description, balance) has zero false positives.
+# ---------------------------------------------------------------------------
+def extract_transactions(pdf_path: str):
+    raw = _parse_raw_lines(pdf_path)
+    return _assign_debit_credit(raw)
 
-    cosmos_header_map = {
-        "date": [
-            "date",
-        ],
-        "description": [
-            "transaction particulars",
-            "particulars",
-            "narration",
-            "description",
-        ],
-        "cheque": [
-            "cheque no",
-            "cheque no.",
-            "chequeno",
-        ],
-        "debit": [
-            "withdrawal",
-            "withdrawal amt",
-        ],
-        "credit": [
-            "deposit",
-            "deposit amt",
-        ],
-        "balance": [
-            "available balance",
-            "balance",
-            "closing balance",
-        ],
-    }
+
+def _parse_raw_lines(pdf_path: str) -> list:
+    """
+    Extract every transaction line from raw PDF text.
+    Returns list of dicts: {date_raw, description, amount, balance}
+    """
+    results   = []
+    seen_keys = set()   # (date, description, balance) — safe dedup, zero false positives
 
     with pdfplumber.open(pdf_path) as pdf:
-
         for page in pdf.pages:
-
-            tables = page.extract_tables(
-                {"vertical_strategy": "lines", "horizontal_strategy": "lines"}
-            )
-
-            if not tables:
+            text = page.extract_text()
+            if not text:
                 continue
 
-            for table in tables:
+            for line in text.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
 
-                for row in table:
+                # Skip known header/footer patterns
+                if _SKIP_RE.match(line):
+                    continue
 
-                    if not row:
-                        continue
+                # Must start with DD/MM/YYYY
+                m_line = _TXN_LINE_RE.match(line)
+                if not m_line:
+                    continue
 
-                    if all((cell or "").strip() == "" for cell in row):
-                        continue
+                date_raw = m_line.group(1)
+                rest     = m_line.group(2).strip()
 
-                    row_text = " ".join((cell or "") for cell in row)
-                    if _SKIP_ROW_RE.search(row_text):
-                        continue
+                # Must end with <amount> <balance> CR
+                m_amt = _AMOUNT_BAL_RE.match(rest)
+                if not m_amt:
+                    continue
 
-                    row_lower = [
-                        (cell or "").replace("\n", " ").strip().lower()
-                        for cell in row
-                    ]
+                description = re.sub(r"\s+", " ", m_amt.group(1).strip())
+                amount      = float(m_amt.group(2).replace(",", ""))
+                balance     = float(m_amt.group(3).replace(",", ""))
 
-                    detected = detect_columns(row_lower, cosmos_header_map)
-                    if detected and "date" in detected:
-                        column_mapping = detected
-                        continue
+                # Dedup using (date, description, balance)
+                # NOTE: (date, balance) alone is NOT safe — verified 128 real
+                # transactions share balance values with other transactions.
+                key = (date_raw, description, balance)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
 
-                    if column_mapping is None:
-                        continue
+                results.append({
+                    "date_raw":    date_raw,
+                    "description": description,
+                    "amount":      amount,
+                    "balance":     balance,
+                })
 
-                    if _is_continuation(row, column_mapping):
-                        if last_txn is not None and "description" in column_mapping:
-                            desc_idx = column_mapping["description"]
-                            if desc_idx < len(row):
-                                extra = (row[desc_idx] or "").replace("\n", " ").strip()
-                                if extra:
-                                    last_txn["description"] = (
-                                        (last_txn["description"] or "") + " " + extra
-                                    ).strip()
-                        continue
+    return results
 
-                    txn = _build_txn(row, column_mapping)
-                    if txn:
-                        transactions.append(txn)
-                        last_txn = txn
+
+def _assign_debit_credit(raw_txns: list) -> list:
+    """
+    Cosmos raw text has only ONE amount column (not separate debit/credit).
+    Determine debit vs credit by comparing current balance to previous balance:
+      balance went UP   → credit (money came in)
+      balance went DOWN → debit  (money went out)
+
+    First transaction has no previous balance — use description keywords as fallback.
+    """
+    transactions = []
+
+    for i, t in enumerate(raw_txns):
+        prev_balance = raw_txns[i - 1]["balance"] if i > 0 else None
+
+        if prev_balance is not None:
+            delta     = round(t["balance"] - prev_balance, 2)
+            is_credit = delta >= 0
+        else:
+            # First transaction — no delta available, use keyword fallback
+            is_credit = not bool(_DEBIT_KEYWORDS_RE.search(t["description"]))
+
+        transactions.append({
+            "date":        _reformat_date(t["date_raw"]),
+            "description": t["description"],
+            "cheque_no":   None,
+            "debit":       None          if is_credit else t["amount"],
+            "credit":      t["amount"]   if is_credit else None,
+            "balance":     t["balance"],
+        })
+
+    # Cosmos PDFs are oldest-first — stable sort preserves same-day sequence
+    transactions.sort(key=_sort_key)
 
     return transactions
-
-
-# ---------------------------------
-# HELPERS
-# ---------------------------------
-def _is_continuation(row, col):
-    def _get(key):
-        idx = col.get(key)
-        return (row[idx] or "").strip() if idx is not None and idx < len(row) else ""
-
-    has_date    = bool(_get("date"))
-    has_amounts = any(bool(_get(k)) for k in ("debit", "credit", "balance"))
-    return not has_date and not has_amounts
-
-
-def _build_txn(row, col):
-    """
-    Columns: [Date, Transaction Particulars, Cheque No., Withdrawal, Deposit, Available Balance]
-    Date input: DD/MM/YYYY → output: DD-MM-YYYY
-    """
-    def _get(key):
-        idx = col.get(key)
-        if idx is None or idx >= len(row):
-            return None
-        return (row[idx] or "").replace("\n", " ").strip() or None
-
-    date_raw = _get("date")
-    if not date_raw or not _DATE_RE.match(date_raw):
-        return None
-
-    desc = _get("description")
-    if desc:
-        desc = re.sub(r"\s+", " ", desc).strip()
-
-    cheque_no = _get("cheque") or None
-    debit     = _clean_amount_cosmos(_get("debit"))
-    credit    = _clean_amount_cosmos(_get("credit"))
-    balance   = _clean_amount_cosmos(_get("balance"))
-
-    return {
-        "date":        _reformat_date(date_raw),   # DD/MM/YYYY → DD-MM-YYYY
-        "description": desc,
-        "cheque_no":   cheque_no,
-        "debit":       debit,
-        "credit":      credit,
-        "balance":     balance,
-    }

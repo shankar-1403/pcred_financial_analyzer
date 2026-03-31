@@ -284,5 +284,5 @@ def extract_transactions(pdf_path: str) -> list[dict]:
         del txn["_srl"]
 
     
-    transactions.sort(key=_sort_key)
+    transactions.sort(key=lambda t: t["row_id"], reverse=True)
     return transactions

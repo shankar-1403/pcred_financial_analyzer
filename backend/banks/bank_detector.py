@@ -34,6 +34,7 @@ BANK_SIGNATURES = [
     ("idbi", r"idbi", r"idbi\s*bank|industrial\s+development\s+bank"),
     ("rbl", r"rbl[\s_-]*bank|rbl", r"rbl\s*bank|\bratn\b"),
     ("karnataka",r"karnataka\s*bank|karb|your\s+family\s+bank",r"karnataka\s*bank\s*ltd|karb[a-z0-9]{7}"),
+    ("apna", r"apna\s*sahakari\s*bank", r"apna\s*sahakari\s*bank|r045006|\bASBL[A-Z0-9]{7}\b"),
 
 ]
 
@@ -78,6 +79,7 @@ IFSC_BANK_MAP = [
     ("idbi", r"\bIBKL[A-Z0-9]{7}\b"),       #IDBI Bank
     ("karnataka", r"\bKARB[A-Z0-9]{7}\b"),  #KBL Bank
     ("rbl", r"\bRATN[A-Z0-9]{7}\b"),        #RBL Bank
+    ("apna", r"\bASBL[A-Z0-9]{7}\b"),       #APNA Sarkari Bank
 ]
 
 
