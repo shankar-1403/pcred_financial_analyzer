@@ -179,7 +179,7 @@ export const NavbarLogo = () => {
 
   return (
     <Link to="/" className="z-20">
-      <img src={'/src/assets/mini_logo.webp'} alt="PCRED" className="h-12"/>
+      <img src={'/src/assets/pcred_full.png'} alt="PCRED" className="h-12"/>
     </Link>
   )
 };
