@@ -96,7 +96,7 @@ function Login() {
         password: loginRef.current.elements.namedItem("password").value,
       }
 
-      const response = await axios.post("http://127.0.0.1:8000/auth/login",payload,{
+      const response = await axios.post(`${import.meta.env.VITE_API_URL}/auth/login`,payload,{
         headers: {
           "Content-Type": "application/json",
         },
@@ -128,7 +128,7 @@ function Login() {
         password: registerRef.current.elements.namedItem("password").value,
       }
 
-      const response = await axios.post("http://127.0.0.1:8000/auth/register",payload,
+      const response = await axios.post(`${import.meta.env.VITE_API_URL}/auth/register`,payload,
       {
         headers: {
           "Content-Type": "application/json",
