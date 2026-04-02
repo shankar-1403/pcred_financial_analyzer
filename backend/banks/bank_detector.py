@@ -34,7 +34,17 @@ BANK_SIGNATURES = [
     ("idbi", r"idbi", r"idbi\s*bank|industrial\s+development\s+bank"),
     ("rbl", r"rbl[\s_-]*bank|rbl", r"rbl\s*bank|\bratn\b"),
     ("karnataka",r"karnataka\s*bank|karb|your\s+family\s+bank",r"karnataka\s*bank\s*ltd|karb[a-z0-9]{7}"),
-    ("apna", r"apna\s*sahakari\s*bank", r"apna\s*sahakari\s*bank|r045006|\bASBL[A-Z0-9]{7}\b"),
+    ("apna_sahakari", r"apna[\s_-]*sahakari|apna\s*bank", r"apna\s*sahakari\s*bank"),
+    ("bharat", r"bharat[\s_-]*co[\s_-]*op|bcbm|bharat\s*bank",r"bharat\s*co[\-\s]?op(?:erative)?\s*bank|bcbm"),
+    ("esaf", r"esaf", r"esaf\s*small\s*finance\s*bank|\besmf\b"),
+    ("svc", r"svc[\s_-]*co[\s_-]*op|svc[\s_-]*bank|\bsvcb\b",
+         r"svc\s*co[\s-]*operative\s*bank|svc\s*bank|\bsvcb\b"),
+    ("bccb", r"bccb|bassein\s*catholic|bacb",
+          r"bassein\s*catholic\s*co[\s-]*operative\s*bank|\bbacb\b|\bbccb\b"),
+          ("sib", r"south\s*indian\s*bank|\bsibl\b|\bsib\b",
+         r"south\s*indian\s*bank|\bsibl\b"),
+
+
 
 ]
 
@@ -79,7 +89,14 @@ IFSC_BANK_MAP = [
     ("idbi", r"\bIBKL[A-Z0-9]{7}\b"),       #IDBI Bank
     ("karnataka", r"\bKARB[A-Z0-9]{7}\b"),  #KBL Bank
     ("rbl", r"\bRATN[A-Z0-9]{7}\b"),        #RBL Bank
-    ("apna", r"\bASBL[A-Z0-9]{7}\b"),       #APNA Sarkari Bank
+    ("apna_sahakari", r"\bASBL[A-Z0-9]{7}\b"),       #APNA Sarkari Bank
+    ("bharat", r"\bBCBM[A-Z0-9]{7}\b"),     # Bharat Co-operative Bank
+    ("esaf", r"\bESMF[A-Z0-9]{7}\b"),       # ESAF Small Finance Bank
+    ("svc", r"\bSVCB[A-Z0-9]{7}\b"),        #SVC Bank
+    ("bccb", r"\bBACB[A-Z0-9]{7}\b"),       #Bassein Catholic Co-operative Bank
+    ("sib", r"\bSIBL[A-Z0-9]{7}\b"),        #South Indian Bank
+
+    
 ]
 
 
@@ -121,6 +138,18 @@ def detect_bank_from_text(lines):
     # # SCB must be first — its statements contain UTIB (Axis) IFSCs in txn descriptions
     if "standard chartered" in header_wide_lower or re.search(r"\bscbl\b", header_wide_lower):
         return "standard_chartered"
+    # Apna Sahakari: ICICI IFSCs appear in NEFT narrations → would mis-detect as ICICI
+    if "apna sahakari bank" in header_wide_lower \
+            or re.search(r"\basbl\b", header_wide_lower) \
+            or "r045006" in header_wide_lower:
+        return "apna_sahakari"
+    if "bassein catholic" in header_wide_lower \
+            or re.search(r"\bbccb\b", header_wide_lower) \
+            or re.search(r"\bbacb\b", header_wide_lower):
+        return "bccb"
+    if "south indian bank" in header_wide_lower \
+            or re.search(r"\bsibl\b", header_wide_lower):
+        return "sib"
 
 
     # 1) IFSC in statement (IndusInd INDB checked before HDFC so we don't mis-id from txn text)
@@ -185,7 +214,21 @@ def detect_bank_from_text(lines):
             or re.search(r"the\s+cosmos", header_wide_lower) \
             or re.search(r"\bcosb\b", header_wide_lower):
         return "cosmos"
-
+    
+    if "apna sahakari bank" in header_wide_lower \
+            or re.search(r"\basbl\b", header_wide_lower) \
+            or "r045006" in header_wide_lower:   # ← unique report code on every page
+        return "apna_sahakari"
+    
+    if "esaf small finance bank" in header_wide_lower \
+            or re.search(r"\besmf\b", header_wide_lower):
+        return "esaf"
+    
+    if "svc co-operative bank" in header_wide_lower \
+            or "svc co operative bank" in header_wide_lower \
+            or re.search(r"\bsvcb\b", header_wide_lower):
+        return "svc"
+    
     return None
 
 

@@ -103,13 +103,21 @@ def _sort_key(txn: dict):
 # AMOUNT CLEANERS
 # ---------------------------------
 def _clean_amount_pnb(value) -> float | None:
+    """
+    Clean an amount string that may use Indian number formatting
+    (e.g. '3,01,695.24') and optionally carry a 'Cr.' or 'Dr.' suffix.
+    Returns the absolute float value (sign is handled by callers).
+    """
     if value is None:
         return None
     s = str(value).strip()
     if not s or s in ("-", "", "None", "null"):
         return None
+    # Strip Cr./Dr. suffix before any further cleaning
     s = re.sub(r"\s*(Cr\.|Dr\.)\s*$", "", s, flags=re.I).strip()
+    # Strip currency prefix
     s = re.sub(r"^(Rs\.?|INR|₹)\s*", "", s, flags=re.I).strip()
+    # Remove thousands separators (handles Indian format: 3,01,695.24)
     s = s.replace(",", "").replace(" ", "")
     if not s:
         return None
@@ -120,7 +128,10 @@ def _clean_amount_pnb(value) -> float | None:
 
 
 def _clean_balance_a(value) -> float | None:
-    """Format A: '4,761.79 Cr.' → +4761.79 | '500.00 Dr.' → -500.00"""
+    """
+    Format A balance: '4,761.79 Cr.' → +4761.79  |  '500.00 Dr.' → -500.00
+    Supports Indian number formatting (e.g. '3,01,695.24 Cr.').
+    """
     if not value:
         return None
     s = str(value).strip()
@@ -132,8 +143,67 @@ def _clean_balance_a(value) -> float | None:
 
 
 def _clean_balance_b(value) -> float | None:
-    """Format B: plain positive number '75,818.65'"""
+    """
+    Format B balance: plain positive number, Indian format, e.g. '75,818.65'.
+    """
     return _clean_amount_pnb(value)
+
+
+# ---------------------------------
+# DESCRIPTION CLEANER
+# ---------------------------------
+def _clean_description(raw: str) -> str | None:
+    """
+    Reconstruct bank narrations that pdfplumber splits across lines due to
+    PDF cell-width wrapping.  Three cases arise:
+
+    1. IMPS/UPI prefix artifact  →  drop the hyphen and join directly
+       e.g. 'IMPS-\\nCHG/…'  →  'IMPSCHG/…'
+       e.g. 'IMPS-\\nOUT/…'  →  'IMPSOUT/…'
+       e.g. 'UPI-\\nREV/…'   →  'UPIREV/…'
+       (the PDF line-wraps "IMPS" from its suffix; dropping the hyphen
+        reconstructs the real transaction code)
+
+    2. Hyphen that is part of the token  →  keep hyphen, join without space
+       e.g. 'paytm-\\n71898413@…'           →  'paytm-71898413@…'
+       e.g. '7367906910-\\n2@ybl/…'         →  '7367906910-2@ybl/…'
+       e.g. 'PRIVATE LIMITED-\\nPAYMENT …'  →  'PRIVATE LIMITED-PAYMENT …'
+       e.g. 'to 31-08-\\n2023'              →  'to 31-08-2023'
+       (hyphens inside UPI VPAs, phone variants, dates, compound names)
+
+    3. No-hyphen break  →  join without space
+       e.g. 'MITHLES\\nH'      →  'MITHLESH'
+       e.g. 'paytm/R\\nAJES'   →  'paytm/RAJES'
+       e.g. 'BAKHTAWAR\\nFOODS' →  'BAKHTAWARFOODS'
+       (PDF wraps mid-token at the cell boundary; there is never a trailing
+        space before these newlines, so no space is needed)
+    """
+    if not raw:
+        return None
+
+    parts = raw.split("\n")
+    result = parts[0]
+
+    for i in range(1, len(parts)):
+        curr = parts[i]
+        if not curr:
+            continue
+        if result.endswith("-"):
+            # Identify the last word-token before the trailing hyphen
+            last_word = re.split(r"[\s/]", result[:-1])[-1] if result[:-1] else ""
+            if last_word.upper() in ("IMPS", "UPI"):
+                # PDF artifact: drop the hyphen entirely
+                result = result[:-1] + curr
+            else:
+                # Hyphen belongs to the token (VPA, date, compound name)
+                result = result + curr
+        else:
+            # Non-hyphen break: cell-width wrap, join without space
+            result = result + curr
+
+    # Collapse any accidental double-spaces (e.g. from preserved interior spaces)
+    result = re.sub(r"  +", " ", result).strip()
+    return result or None
 
 
 # ---------------------------------
@@ -233,6 +303,7 @@ def extract_transactions(pdf_path: str) -> list[dict]:
                 continue
 
             for table in tables:
+                # Require at least one row AND exactly 6 columns
                 if not table or len(table[0]) != 6:
                     continue
 
@@ -245,6 +316,7 @@ def extract_transactions(pdf_path: str) -> list[dict]:
                         for cell in row
                     ]
 
+                    # Detect and lock format/column mapping from header rows
                     detected_fmt = _identify_format(row_clean)
                     if detected_fmt == "A":
                         col = _detect_columns(row_clean, HEADER_MAP_A)
@@ -257,6 +329,7 @@ def extract_transactions(pdf_path: str) -> list[dict]:
                             column_mapping, fmt = col, "B"
                             continue
 
+                    # Skip until a valid header has been seen
                     if column_mapping is None or fmt is None:
                         continue
 
@@ -270,20 +343,29 @@ def extract_transactions(pdf_path: str) -> list[dict]:
                         else _build_txn_b(row, column_mapping, date_raw)
                     )
                     if txn:
+                        txn["_idx"] = len(transactions)  # preserve original order
                         transactions.append(txn)
 
     # Sort chronologically (oldest → newest) regardless of PDF order
-    transactions.sort(key=_sort_key)
+    transactions.sort(
+        key=lambda txn: (
+            datetime.strptime(txn["date"], "%d-%m-%Y"),
+            -txn["_idx"]   # ← negative = descending _idx within same date
+        )
+    )
 
-    return transactions
+    # Re-assign clean sequential _idx after sorting
+    for i, txn in enumerate(transactions):
+        txn["_idx"] = i
+
+        return transactions
 
 
 # ---------------------------------
 # ROW BUILDERS
 # ---------------------------------
 def _build_txn_a(row, col, date_raw) -> dict:
-    desc_raw    = row[col.get("description", 5)] or ""
-    description = re.sub(r"\s+", " ", desc_raw.replace("\n", " ")).strip() or None
+    description = _clean_description(row[col.get("description", 5)] or "")
     cheque_no   = (row[col.get("cheque",   1)] or "").strip() or None
     debit       = _clean_amount_pnb(row[col.get("debit",   2)])
     credit      = _clean_amount_pnb(row[col.get("credit",  3)])
@@ -299,8 +381,7 @@ def _build_txn_a(row, col, date_raw) -> dict:
 
 
 def _build_txn_b(row, col, date_raw) -> dict:
-    desc_raw    = row[col.get("description", 5)] or ""
-    description = re.sub(r"\s+", " ", desc_raw.replace("\n", " ")).strip() or None
+    description = _clean_description(row[col.get("description", 5)] or "")
     instr_id    = (row[col.get("instrument", 1)] or "").strip() or None
     amount      = _clean_amount_pnb(row[col.get("amount", 2)])
     txn_type    = (row[col.get("type",   3)] or "").strip().upper()
