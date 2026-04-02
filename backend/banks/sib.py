@@ -2,114 +2,71 @@ import re
 import pdfplumber
 from datetime import datetime
 
-from .base import (
-    default_account_info,
-    clean_amount,
-)
+from .base import default_account_info
 
 BANK_KEY          = "sib"
 BANK_DISPLAY_NAME = "South Indian Bank"
 
-
-# =============================================================================
-# SOUTH INDIAN BANK (SIB) — PDF FORMAT (Statement of Account)
-# =============================================================================
-#
-# TOP-RIGHT INFO BLOCK (every page):
-#   Branch Name : GOREGAON,MUMBAI
-#   IFSC        : SIBL0000352
-#   Customer ID : A52490063
-#   Type        : CASH CREDIT - GENERAL
-#   A/C No      : 0352083000000528
-#   Currency    : INR
-#   MICR        : 400059007
-#   Swift Code  : SOININ55XXX
-#
-# TOP-LEFT INFO BLOCK:
-#   M/S. AGRAWAL ASSOCIATES      ← account holder (first bold line)
-#   Address lines...
-#   DATE: 30-12-2025             ← statement request date
-#
-# STATEMENT PERIOD LINE:
-#   "STATEMENT OF ACCOUNT FOR THE PERIOD FROM 01-04-2024 to 31-03-2025"
-#
-# TRANSACTION TABLE (6 columns):
-#   DATE | PARTICULARS | CHQ_NO. | WITHDRAWALS | DEPOSITS | BALANCE
-#
-# DATE FORMAT  : "01-04-2024"  (DD-MM-YYYY) — already correct, no reformat needed
-# BALANCE      : "5534039.39 Dr" or "180001.00 Cr" → strip suffix, negative if Dr
-# WITHDRAWALS  : debit  (blank = None)
-# DEPOSITS     : credit (blank = None)
-# CHQ_NO.      : ref_no (often blank)
-# SKIP ROWS    : "Page Total", "B/F" (opening balance carry-forward), dashes
-# =============================================================================
-
-
-# ---------------------------------
-# REGEX PATTERNS
-# ---------------------------------
+# ---------------------------------------------------------------------------
+# REGEX
+# ---------------------------------------------------------------------------
 _IFSC_RE    = re.compile(r"\b(SIBL[A-Z0-9]{7})\b", re.I)
 _MICR_RE    = re.compile(r"MICR\s*[:\-]?\s*(\d{9})", re.I)
 _ACCT_RE    = re.compile(r"A/C\s*No\s*[:\-]?\s*(\d{10,})", re.I)
 _CUSTID_RE  = re.compile(r"customer\s*id\s*[:\-]?\s*(\S+)", re.I)
-_TYPE_RE    = re.compile(r"type\s*[:\-]?\s*(.+)", re.I)
+_TYPE_RE    = re.compile(r"TYPE\s*[:\-]?\s*(.+?)(?:\s+currency\s*:|\s*$)", re.I)
 _BRANCH_RE  = re.compile(r"branch\s*name\s*[:\-]?\s*(.+)", re.I)
-_DATE_RE_   = re.compile(r"DATE\s*[:\-]?\s*(\d{2}-\d{2}-\d{4})", re.I)
-_SWIFT_RE   = re.compile(r"swift\s*code\s*[:\-]?\s*(\S+)", re.I)
+_REQDATE_RE = re.compile(r"DATE\s*[:\-]?\s*(\d{2}-\d{2}-\d{4})", re.I)
 _PERIOD_RE  = re.compile(
     r"for\s+the\s+period\s+from\s+(\d{2}-\d{2}-\d{4})\s+to\s+(\d{2}-\d{2}-\d{4})",
     re.I,
 )
 
-# Transaction date: "01-04-2024" (DD-MM-YYYY)
-_TXN_DATE_RE = re.compile(r"^\d{2}-\d{2}-\d{4}$")
+# Transaction anchor:
+# "03-04-2024 BKIDN24094546264/... 15000.00 5519039.39 Dr"
+# "13-06-2024 LIMIT CLOSURE ...    5589179.51 0.00"
+_TXN_ANCHOR_RE = re.compile(
+    r"^(\d{2}-\d{2}-\d{4})\s+(.+?)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})(?:\s+(Cr|Dr))?\s*$",
+    re.I,
+)
 
-# Balance suffix
-_DR_RE = re.compile(r"\s*Dr\.?\s*$", re.I)
-_CR_RE = re.compile(r"\s*Cr\.?\s*$", re.I)
+# Lines that mark the START of a new page header — stop continuation here
+_PAGE_HEADER_RE = re.compile(
+    r"^(Branch\s+Name\s*:|\d+$|Page\s+Total|Page\s+\d+\s+of|"
+    r"This\s+is\s+a\s+system|Visit\s+us\s+at|"
+    r"STATEMENT\s+OF\s+ACCOUNT\s+FOR|"
+    r"DATE\s+PARTICULARS|[-=]{5,})",
+    re.I,
+)
 
-# Rows to skip
-_SKIP_ROW_RE = re.compile(
+# Rows to completely ignore
+_IGNORE_RE = re.compile(
     r"^(page\s+total|b/f|brought\s+forward|[-=]{5,}|"
     r"date\s+particulars|this\s+is\s+a\s+system|"
-    r"visit\s+us|page\s+\d+\s+of)",
+    r"visit\s+us|page\s+\d+\s+of|grand\s+total|"
+    r"branch\s+name|ifsc|ground\s+and|s\.v\.road|"
+    r"mumbai\s+suburban|maharashtra\s+\d|ph:\s*0|"
+    r"swift\s+code|mode\s+of\s+opr|"
+    r"statement\s+of\s+account|"
+    r"\d+$)",
     re.I,
 )
 
 
-# ---------------------------------
+# ---------------------------------------------------------------------------
 # HELPERS
-# ---------------------------------
-def _is_txn_date(value: str) -> bool:
-    return bool(_TXN_DATE_RE.match((value or "").strip()))
-
-
-def _sort_key(txn: dict):
+# ---------------------------------------------------------------------------
+def _parse_date(s: str) -> datetime:
     try:
-        return datetime.strptime(txn["date"], "%d-%m-%Y")
-    except (ValueError, TypeError, KeyError):
+        return datetime.strptime(s, "%d-%m-%Y")
+    except (ValueError, TypeError):
         return datetime.max
 
 
-# ---------------------------------
-# AMOUNT CLEANER
-# ---------------------------------
-def _clean_amount_sib(value) -> float | None:
-    """
-    Handles:
-      - "10166.66"          → 10166.66   (debit/credit cell)
-      - "5534039.39 Dr"     → 5534039.39 (balance, Dr = overdraft but stored positive)
-      - "180001.00 Cr"      → 180001.00  (balance)
-      - ""  / None          → None
-    """
+def _clean_amount(value) -> float | None:
     if value is None:
         return None
-    s = str(value).strip()
-    if not s or s in ("-", "", "None", "null"):
-        return None
-    # Strip Dr/Cr suffix
-    s = _DR_RE.sub("", s).strip()
-    s = _CR_RE.sub("", s).strip()
+    s = re.sub(r"\s*(Dr|Cr)\.?\s*$", "", str(value), flags=re.I).strip()
     s = s.replace(",", "").replace(" ", "")
     if not s:
         return None
@@ -119,225 +76,170 @@ def _clean_amount_sib(value) -> float | None:
         return None
 
 
-# ---------------------------------
-# COLUMN DETECTION
-# ---------------------------------
-def _detect_cols(row: list) -> dict:
-    """
-    Header-based column detection — works regardless of total column count.
-    Returns mapping if 'date' and 'balance' found, else {}.
-    """
-    mapping = {}
-    for idx, cell in enumerate(row):
-        c = (cell or "").replace("\n", " ").strip().lower()
-        if c in ("date", "transaction date", "tran date", "txn date"):
-            mapping["date"] = idx
-        elif c in ("particulars", "description", "narration", "remarks"):
-            mapping["description"] = idx
-        elif c in ("chq no.", "chq no", "chq_no.", "chq_no",
-                   "cheque no", "cheque no.", "ref no", "instrument no"):
-            mapping["ref_no"] = idx
-        elif c in ("withdrawals", "withdrawal", "debit", "dr"):
-            mapping["debit"] = idx
-        elif c in ("deposits", "deposit", "credit", "cr"):
-            mapping["credit"] = idx
-        elif c == "balance":
-            mapping["balance"] = idx
-    return mapping if ("date" in mapping and "balance" in mapping) else {}
+def _clean_balance(raw_amt: str, suffix: str | None) -> float | None:
+    amt = _clean_amount(raw_amt)
+    if amt is None:
+        return None
+    if suffix and suffix.upper() == "DR":
+        return -amt
+    return amt
 
 
-def _is_header_row(row: list) -> bool:
-    joined = " ".join((cell or "").replace("\n", " ").strip().lower() for cell in row)
-    return (
-        ("date" in joined)
-        and "balance" in joined
-        and ("withdrawal" in joined or "deposit" in joined or "particulars" in joined)
-    )
-
-
-# =============================================================================
-# ACCOUNT INFO EXTRACTION
-# =============================================================================
+# ---------------------------------------------------------------------------
+# ACCOUNT INFO
+# ---------------------------------------------------------------------------
 def extract_account_info(lines: list[str]) -> dict:
-    """
-    Extract account metadata from South Indian Bank statement.
-
-    Top-right block (key : value pairs):
-        Branch Name : GOREGAON,MUMBAI
-        IFSC        : SIBL0000352
-        Customer ID : A52490063
-        Type        : CASH CREDIT - GENERAL
-        A/C No      : 0352083000000528
-        MICR        : 400059007
-
-    Top-left block:
-        M/S. AGRAWAL ASSOCIATES     ← account holder
-        <address lines>
-        DATE: 30-12-2025
-
-    Statement line:
-        STATEMENT OF ACCOUNT FOR THE PERIOD FROM 01-04-2024 to 31-03-2025
-    """
     info = default_account_info()
     info["bank_name"] = BANK_DISPLAY_NAME
     info["currency"]  = "INR"
 
     full_text = "\n".join(lines)
 
-    # IFSC
     m = _IFSC_RE.search(full_text)
     if m:
         info["ifsc"] = m.group(1).upper()
 
-    # MICR
     m = _MICR_RE.search(full_text)
     if m:
         info["micr"] = m.group(1)
 
-    # Account number
     m = _ACCT_RE.search(full_text)
     if m:
         info["account_number"] = m.group(1)
 
-    # Customer ID
     m = _CUSTID_RE.search(full_text)
     if m:
         info["customer_id"] = m.group(1).strip()
 
-    # Account type
     m = _TYPE_RE.search(full_text)
     if m:
         candidate = m.group(1).strip()
-        # Avoid picking up "ANY ONE" (mode of operation) or other noise
         if candidate and "ANY" not in candidate.upper() and len(candidate) > 3:
             info["acc_type"] = candidate
 
-    # Branch
     m = _BRANCH_RE.search(full_text)
     if m:
         info["branch"] = m.group(1).strip()
 
-    # Statement request date: "DATE: 30-12-2025"
-    m = _DATE_RE_.search(full_text)
+    m = _REQDATE_RE.search(full_text)
     if m:
         info["statement_request_date"] = m.group(1)
 
-    # Statement period
     m = _PERIOD_RE.search(full_text)
     if m:
         info["statement_period"]["from"] = m.group(1)
         info["statement_period"]["to"]   = m.group(2)
 
-    # Account holder — first non-empty line that looks like a name
-    # (appears in top-left before address, starts with M/S. or ALL CAPS)
-    _NOISE_RE = re.compile(
-        r"branch|ifsc|customer|a/c|account|micr|swift|currency|mode|"
-        r"type|date|statement|period|visit|page|system|phone|ph:|"
-        r"ground|floor|road|nagar|maharashtra|india|mumbai|@",
-        re.I,
-    )
-    for line in lines[:30]:
+    # Example raw line:
+    # "M/S. AGRAWAL ASSOCIATES DATE: 30-12-2025"
+    for line in lines[:25]:
         s = line.strip()
-        if not s or len(s) < 3:
+        if not s:
             continue
-        if _NOISE_RE.search(s):
-            continue
-        if re.match(r"^\d", s):
-            continue
-        if re.match(r"^[A-Z]", s) and not re.search(r"\d{6,}", s):
-            info["account_holder"] = s
-            break
+        if re.match(r"^M/S\.\s+", s, re.I):
+            name = re.sub(r"\s+DATE\s*:.*$", "", s, flags=re.I).strip()
+            if name:
+                info["account_holder"] = name
+                break
 
     return info
 
 
-# =============================================================================
-# TRANSACTION EXTRACTION
-# =============================================================================
+def extract_account_info_full(pdf_path: str, lines: list[str]) -> dict:
+    return extract_account_info(lines)
+
+
+# ---------------------------------------------------------------------------
+# TRANSACTIONS
+# ---------------------------------------------------------------------------
 def extract_transactions(pdf_path: str) -> list[dict]:
-    """
-    Extract all transactions from a South Indian Bank PDF statement.
+    transactions = []
+    current_txn = None
+    in_header = False
+    prev_balance = None
 
-    6-column table:
-        DATE | PARTICULARS | CHQ_NO. | WITHDRAWALS | DEPOSITS | BALANCE
-
-    DATE format  : 'DD-MM-YYYY' (already correct — no reformat needed)
-    BALANCE      : 'AMOUNT Dr' or 'AMOUNT Cr' — strip suffix, store as positive float
-    Skip rows    : Page Total, B/F, dashed lines, footer text
-    """
-    transactions   = []
-    column_mapping = None
-    last_txn       = None
-
+    all_lines = []
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
-            tables = page.extract_tables(
-                {"vertical_strategy": "lines", "horizontal_strategy": "lines"}
-            )
-            if not tables:
+            text = page.extract_text() or ""
+            all_lines.extend(text.split("\n"))
+
+    for raw in all_lines:
+        line = raw.strip()
+        if not line:
+            continue
+
+        if _PAGE_HEADER_RE.match(line):
+            in_header = True
+
+        if re.match(r"^DATE\s+PARTICULARS", line, re.I):
+            in_header = False
+            continue
+
+        if _IGNORE_RE.match(line):
+            continue
+
+        if in_header:
+            continue
+
+        m = _TXN_ANCHOR_RE.match(line)
+        if m:
+            if current_txn is not None:
+                transactions.append(current_txn)
+
+            date_str   = m.group(1)
+            desc_part  = m.group(2).strip()
+            amt1_raw   = m.group(3)
+            amt2_raw   = m.group(4)
+            bal_suffix = m.group(5)
+
+            balance = _clean_balance(amt2_raw, bal_suffix)
+
+            debit = None
+            credit = None
+
+            if re.match(r"^b/?f$", desc_part, re.I):
+                prev_balance = balance
+                current_txn = None
                 continue
 
-            for table in tables:
-                if not table:
-                    continue
+            if prev_balance is not None and balance is not None:
+                diff = round(balance - prev_balance, 2)
+                if diff > 0:
+                    credit = abs(diff)
+                elif diff < 0:
+                    debit = abs(diff)
+            else:
+                debit = _clean_amount(amt1_raw)
 
-                for row in table:
-                    if not row:
-                        continue
+            current_txn = {
+                "date": date_str,
+                "description": desc_part,
+                "ref_no": None,
+                "debit": debit,
+                "credit": credit,
+                "balance": balance,
+            }
+            prev_balance = balance
 
-                    # Skip footer/summary/header noise rows
-                    first = (row[0] or "").replace("\n", " ").strip()
-                    row_text = " ".join((cell or "") for cell in row)
+        else:
+            if current_txn is not None and not in_header:
+                current_txn["description"] = (
+                    current_txn["description"] + " " + line
+                ).strip()
 
-                    if _SKIP_ROW_RE.search(first) or _SKIP_ROW_RE.search(row_text):
-                        continue
+    if current_txn is not None:
+        transactions.append(current_txn)
 
-                    # Detect header row
-                    if _is_header_row(row):
-                        detected = _detect_cols(row)
-                        if detected:
-                            column_mapping = detected
-                        continue
+    _FOOTER_NOISE_RE = re.compile(
+        r"\s*(Grand\s+Total|Page\s+Total|This\s+is\s+a).*$", re.I
+    )
+    for txn in transactions:
+        txn["description"] = _FOOTER_NOISE_RE.sub("", txn["description"]).strip()
 
-                    if column_mapping is None:
-                        continue
+    transactions.sort(key=lambda t: _parse_date(t["date"]))
 
-                    def _get(key):
-                        idx = column_mapping.get(key)
-                        if idx is None or idx >= len(row):
-                            return None
-                        return (row[idx] or "").replace("\n", " ").strip() or None
+    for i, txn in enumerate(transactions):
+        txn["_idx"] = i
 
-                    date_raw = _get("date")
-
-                    # Continuation row — no date, append description
-                    if not date_raw or not _is_txn_date(date_raw):
-                        if last_txn:
-                            extra = _get("description")
-                            if extra:
-                                last_txn["description"] = (
-                                    (last_txn["description"] or "") + " " + extra
-                                ).strip()
-                        continue
-
-                    # Skip B/F (brought forward) opening balance row
-                    desc_raw = _get("description") or ""
-                    if re.match(r"^b/?f$", desc_raw.strip(), re.I):
-                        continue
-
-                    desc = re.sub(r"\s+", " ", desc_raw).strip() or None
-
-                    txn = {
-                        "date":        date_raw,            # already DD-MM-YYYY
-                        "description": desc,
-                        "ref_no":      _get("ref_no") or None,
-                        "debit":       _clean_amount_sib(_get("debit")),
-                        "credit":      _clean_amount_sib(_get("credit")),
-                        "balance":     _clean_amount_sib(_get("balance")),
-                    }
-                    transactions.append(txn)
-                    last_txn = txn
-
-    # Sort chronologically oldest → newest
-    transactions.sort(key=_sort_key)
     return transactions

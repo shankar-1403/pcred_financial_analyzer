@@ -41,8 +41,9 @@ BANK_SIGNATURES = [
          r"svc\s*co[\s-]*operative\s*bank|svc\s*bank|\bsvcb\b"),
     ("bccb", r"bccb|bassein\s*catholic|bacb",
           r"bassein\s*catholic\s*co[\s-]*operative\s*bank|\bbacb\b|\bbccb\b"),
-          ("sib", r"south\s*indian\s*bank|\bsibl\b|\bsib\b",
+    ("sib", r"south\s*indian\s*bank|\bsibl\b|\bsib\b",
          r"south\s*indian\s*bank|\bsibl\b"),
+    ("tjsb", r"tjsb|tjsb\s*sahakari", r"tjsb\s*sahakari\s*bank"),     
 
 
 
@@ -95,6 +96,7 @@ IFSC_BANK_MAP = [
     ("svc", r"\bSVCB[A-Z0-9]{7}\b"),        #SVC Bank
     ("bccb", r"\bBACB[A-Z0-9]{7}\b"),       #Bassein Catholic Co-operative Bank
     ("sib", r"\bSIBL[A-Z0-9]{7}\b"),        #South Indian Bank
+    ("tjsb", r"\bTJSB[A-Z0-9]{7}\b"),       #TJSB Bank
 
     
 ]
@@ -150,6 +152,8 @@ def detect_bank_from_text(lines):
     if "south indian bank" in header_wide_lower \
             or re.search(r"\bsibl\b", header_wide_lower):
         return "sib"
+    if "tjsb" in header_wide_lower or "tjsb sahakari" in header_wide_lower:
+        return "tjsb"
 
 
     # 1) IFSC in statement (IndusInd INDB checked before HDFC so we don't mis-id from txn text)
