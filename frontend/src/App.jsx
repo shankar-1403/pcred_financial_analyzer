@@ -1,5 +1,6 @@
 import { BrowserRouter,Routes,Route } from 'react-router-dom';
 import Login from './login/Login';
+import SessionManager from './components/SessionManager';
 import Dashboard from './dashboard/Dashboard';
 import Report from './reports/Report';
 import NewReport from './reports/NewReport';
@@ -14,6 +15,7 @@ function App() {
   return (
     <>
       <BrowserRouter>
+        <SessionManager />
         <Routes>
           <Route path='/' element={<PublicRoute><Login/></PublicRoute>}/>
           <Route path='/dashboard' element={<PrivateRoute><Dashboard/></PrivateRoute>}/>

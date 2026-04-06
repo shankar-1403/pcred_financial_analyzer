@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from bson import ObjectId
 from models.master.user import user_details
 from mongodb import get_db
+import bcrypt
 
 router = APIRouter()
 
@@ -53,6 +54,8 @@ def get():
 def post(data:user_details):
     db = get_db()
     user_dict = data.model_dump(by_alias=True)
+    hashed_password = bcrypt.hashpw(user_dict["password"].encode("utf-8"),bcrypt.gensalt())
+    user_dict["password"] = hashed_password
     user_id = user_dict.get("_id")
     if user_id:
         user_dict.pop("_id", None)

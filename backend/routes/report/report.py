@@ -64,13 +64,13 @@ def create(data: report_details = Depends(report_details.as_form),file: UploadFi
     collection = db[report_name]
     account_details["type"] = "account"
     collection.insert_one(account_details)
-
+    
     for txn in transactions:
         txn["type"] = "transaction"
 
     collection.insert_many(transactions)
 
-    
+    # print(transactions)
     if result:  
         return {"message": "New Report created successfully","status": 200}
     else:

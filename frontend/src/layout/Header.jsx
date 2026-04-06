@@ -6,6 +6,7 @@ import { IconCaretDownFilled,IconUser, IconShield } from "@tabler/icons-react";
 import { Link } from "react-router-dom";
 import { motion as Motion, AnimatePresence } from "motion/react";
 import { useNavigate } from "react-router-dom";
+import { clearSession } from "../lib/session";
 
 const navItems = [
   { name: "Home", link: "/" },
@@ -39,10 +40,8 @@ export default function Header() {
   const [open, setOpen] = useState(false);
   const [productsOpen, setProductsOpen] = useState(false);
   const handleLogout = () => {
-    localStorage.removeItem("name");
-    localStorage.removeItem("auth");
-    localStorage.removeItem("session_token");
-    navigate("/")
+    clearSession();
+    navigate("/");
   }
 
   const email_id = localStorage.getItem("auth");

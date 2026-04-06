@@ -10,15 +10,22 @@ export function setLocalStorageItem(key, value, ttlInMs) {
 
 export function getLocalStorageItem(key) {
   const itemStr = localStorage.getItem(key);
-  // if the item doesn't exist, return null
   if (!itemStr) {
     return null;
   }
-  const item = JSON.parse(itemStr);
+  let item;
+  try {
+    item = JSON.parse(itemStr);
+  } catch {
+    localStorage.removeItem(key);
+    return null;
+  }
+  if (!item || typeof item !== "object") {
+    localStorage.removeItem(key);
+    return null;
+  }
   const now = new Date();
-  // compare the expiry time of the item with the current time
-  if (item.expiry && now.getTime() > item.expiry) {
-    // If the item is expired, delete the item from storage and return null
+  if (item.expiry != null && now.getTime() > Number(item.expiry)) {
     localStorage.removeItem(key);
     return null;
   }

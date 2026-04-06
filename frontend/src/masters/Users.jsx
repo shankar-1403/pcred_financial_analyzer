@@ -1,5 +1,5 @@
 import React,{useState, useEffect, useRef} from 'react';
-import Header from '../layout/header';
+import Header from '../layout/Header';
 import { Link } from 'react-router-dom';
 import Datatable from '../components/Datatable';
 import axios from 'axios';
@@ -60,6 +60,7 @@ function Users() {
         setIsEdit(true);
         setTimeout(() => {
             formRef.current.full_name.value = row.full_name || "";
+            formRef.current.password.value = row.password || "";
             formRef.current.email_id.value = row.email_id || "";
             setRoleValue(row.role?.id || "");
             setStatusValue(row.status || "");
@@ -88,6 +89,7 @@ function Users() {
                     _id:editId,
                     full_name:formRef.current.elements.namedItem("full_name").value,
                     email_id:formRef.current.elements.namedItem("email_id").value,
+                    password:formRef.current.elements.namedItem("password").value,
                     role:formRef.current.elements.namedItem("role").value,
                     status:formRef.current.elements.namedItem("status").value,
                     created_at:showDateTime,
@@ -107,6 +109,7 @@ function Users() {
                 const payload = {
                     full_name:formRef.current.elements.namedItem("full_name").value,
                     email_id:formRef.current.elements.namedItem("email_id").value,
+                    password:formRef.current.elements.namedItem("password").value,
                     role:roleValue,
                     status:statusValue,
                     updated_at:showDateTime,
@@ -189,6 +192,9 @@ function Users() {
                                     <div className='grid grid-cols-2 gap-4 mt-4'>
                                         <div className="col-span-1">
                                             <TextField name='full_name' label="Name" size='small' fullWidth/>
+                                        </div>
+                                        <div className="col-span-1">
+                                            <TextField name='password' label="Password" size='small' fullWidth/>
                                         </div>
                                         <div className="col-span-1">
                                             <TextField name='email_id' label="Email Id" size='small' fullWidth/>

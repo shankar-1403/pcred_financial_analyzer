@@ -3,6 +3,13 @@ import TextField from '@mui/material/TextField';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useSnackbar } from '../components/SnackbarContext';
+import { setLocalStorageItem } from '../lib/storage';
+import authBg from '../assets/auth-bg.jpg';
+import {
+  createSessionToken,
+  SESSION_TOKEN_KEY,
+  SESSION_TTL_MS,
+} from '../lib/session';
 
 function Login() {
   const navigate = useNavigate();
@@ -12,80 +19,6 @@ function Login() {
   const [loginLoading,setLoginLoading] = useState(false);
   const [registerLoading,setRegisterLoading] = useState(false);
   const [loginTab, setLoginTab] = useState(true);
-
-  const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
-  const SESSION_TOKEN_KEY = "session_token";
-  
-  function setLocalStorageItem(key, value, ttlInMs) {
-    const now = new Date();
-    const item = {
-      value: value,
-      expiry: ttlInMs ? now.getTime() + ttlInMs : null,
-    };
-    localStorage.setItem(key, JSON.stringify(item));
-  }
-
-  function getLocalStorageItem(key) {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  }
-
-  function isExpiredStoredItem(key) {
-    const item = getLocalStorageItem(key);
-    if (!item) return true;
-    if (item.expiry == null) return false;
-    return Date.now() >= Number(item.expiry);
-  }
-
-  function createSessionToken() {
-    // Cryptographically-strong random token (browser runtime)
-    const bytes = new Uint8Array(32);
-    crypto.getRandomValues(bytes);
-    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  }
-
-  function logoutNow(redirectWithNavigate = false) {
-    localStorage.removeItem("auth");
-    localStorage.removeItem("name");
-    localStorage.removeItem(SESSION_TOKEN_KEY);
-    if (redirectWithNavigate) {
-      navigate("/", { replace: true });
-      return;
-    }
-    // Fallback (should be rare)
-    window.location.href = "/";
-  }
-
-  function startSessionWatcher() {
-    // Prevent multiple watchers in same tab
-    if (window.__pcredSessionWatcherStarted) return;
-    window.__pcredSessionWatcherStarted = true;
-
-    const checkAndLogoutIfExpired = () => {
-      if (isExpiredStoredItem(SESSION_TOKEN_KEY)) {
-        logoutNow(true);
-      }
-    };
-
-    // Check immediately, then periodically (covers sleep/wake without refresh)
-    checkAndLogoutIfExpired();
-    window.__pcredSessionIntervalId = window.setInterval(checkAndLogoutIfExpired, 30 * 1000);
-
-    // Re-check when user returns to tab
-    window.addEventListener("visibilitychange", () => {
-      if (!document.hidden) checkAndLogoutIfExpired();
-    });
-
-    // Multi-tab: if another tab logs out, react here too
-    window.addEventListener("storage", (e) => {
-      if (e.key === SESSION_TOKEN_KEY || e.key === "auth") checkAndLogoutIfExpired();
-    });
-  }
 
   const formLogin = async(e) => {
     e.preventDefault();
@@ -106,7 +39,6 @@ function Login() {
         localStorage.setItem("auth",response.data.email_id);
         localStorage.setItem("name",response.data.company_name);
         setLocalStorageItem(SESSION_TOKEN_KEY, createSessionToken(), SESSION_TTL_MS);
-        startSessionWatcher();
         showSnackbar(response.data.message,"success");
       }else{
         showSnackbar(response.data.message,"error");
@@ -139,7 +71,6 @@ function Login() {
         localStorage.setItem("auth",response.data.email_id);
         localStorage.setItem("name",response.data.company_name);
         setLocalStorageItem(SESSION_TOKEN_KEY, createSessionToken(), SESSION_TTL_MS);
-        startSessionWatcher();
       }else{
         console.log(response.message)
       }
@@ -151,10 +82,15 @@ function Login() {
   }
   return (
     <>
-      <div className="flex justify-center items-center h-screen">
+      <div className="relative flex justify-center items-center h-screen">
+        <img
+          src={authBg}
+          alt="Abstract background"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
         {loginTab ?
-          <div className='p-8 rounded-2xl shadow-2xl w-100'>
-            <form ref={loginRef} onSubmit={formLogin}>
+          <div className='p-8 rounded-2xl shadow-2xl w-100 relative'>
+            <form ref={loginRef} onSubmit={formLogin} className='bg-white/60 rounded-4xl p-8 border border-white'>
               <h1 className='text-2xl font-bold mb-8'>{loginTab ? 'Sign in to PCRED' : 'Sign Up to PCRED'}</h1>
               <div className="grid grid-cols-2 gap-7 mb-4">
                 <div className="col-span-2">
@@ -200,7 +136,7 @@ function Login() {
                 <div className="col-span-1">
                   <div className="flex items-center gap-2">
                     <div>
-                        <input type="checkbox" id='communication_preference' name='communication_preference' className="w-3 h-3 accent-[#084b6f] focus:ring-[#084b6f] cursor-pointer"/>
+                        <input type="checkbox" id='communication_preference' name='communication_preference' className='w-3 h-3 accent-[#084b6f] focus:ring-[#084b6f] cursor-pointer'/>
                     </div>
                     <div>
                         <label htmlFor='communication_preference' className='text-gray-700 text-sm cursor-pointer'>Remember me</label>

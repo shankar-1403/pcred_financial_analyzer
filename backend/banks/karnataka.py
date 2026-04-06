@@ -7,46 +7,6 @@ from .base import default_account_info
 BANK_KEY          = "karnataka"
 BANK_DISPLAY_NAME = "Karnataka Bank"
 
-
-# =============================================================================
-# KARNATAKA BANK — TWO PDF FORMATS
-# =============================================================================
-#
-# ── FORMAT 1: Online Statement ──────────────────────────────────────────────
-#   "A/c Number   1012500100716401"
-#   "Name         RAMESH KOTUMAL PAHLAJANI"
-#   "Branch Name  OVERSEAS, MUMBAI"
-#   "IFSC Code    KARB0000101"
-#   "Statement Generated for the period : 01-Aug-2024 - 21-Sep-2024"
-#   Table: Date | Description | Chq/Ref No | Withdrawals | Deposits | Balance
-#   Date format: DD-MM-YYYY
-#
-# ── FORMAT 2: Branch Account Statement ──────────────────────────────────────
-#   "Account Statement"             ← page title
-#   "General Details"               ← section header
-#   "Number: 4752000100130101 Nickname: ROHAN CORPORATION INDIA PRIVATE LIMITED"
-#   "Name: ROHAN CORPORATION Status: Active Account"
-#   "INDIA PRIVATE LIMITED"         ← name continuation line
-#   "Type: Current Category: CA-MONEY DIAMOND"
-#   "Currency: INR Open Date: 11/12/10"
-#   "Branch: MANGALORE - Drawing Power: INR 0.00"
-#   "DONGERKERY"                    ← branch continuation line
-#   "Date From(dd/MM/yyyy): 01/07/2023"
-#   "Date To(dd/MM/yyyy): 31/08/2024"
-#   Table header: "Transactions List - ROHAN CORPORATION (INR) - 4752000100130101"
-#   Columns: Date | Description | Cheque No | Debit | Credit | Balance (INR)
-#   Date format: DD/MM/YYYY   Balance: can be NEGATIVE (overdraft)
-#
-# QUIRKS:
-#   1. Format 2 labels use COLON: "Number: 4752..." not "Number   4752..."
-#   2. Name/Branch may span TWO lines — continuation absorbed
-#   3. Bank has NO "Karnataka Bank" text in header — detected by KARB IFSC
-#      or account number pattern (10 digits starting 47/10) or General Details
-#   4. Indian number format: 1,05,473.36 — strip all commas
-#   5. pdfplumber may split amounts onto separate line
-# =============================================================================
-
-
 # ---------------------------------
 # SHARED PATTERNS
 # ---------------------------------

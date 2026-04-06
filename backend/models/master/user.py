@@ -5,6 +5,7 @@ class user_details(BaseModel):
     id:Optional[str] = Field(default=None, alias="_id")
     full_name:str
     email_id:str
+    password:str
     role:str
     status:str
     created_at:Optional[str] = None
