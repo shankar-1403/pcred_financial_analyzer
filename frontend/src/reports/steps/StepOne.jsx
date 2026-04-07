@@ -53,7 +53,7 @@ function StepOne({reportData}) {
 
         const ecsNachIssuedKeywords = ["ecs","ecs debit","ecs dr","ecs payment","ecs mandate","ecs auto debit","nach","nach debit","nach dr","nach payment","nach mandate","ach","ach debit","ach dr","ach payment","auto debit","auto-debit","auto debit payment","standing instruction","si debit","si dr","e-mandate","emandate","loan ecs","emi ecs","ecs loan","nach emi","ach emi"];
 
-        const emiLoanPaymentKeywords = ["emi","loan emi","emi payment","emi installment","emi instalment","loan repayment","loan installment","loan instalment","loan inst","loan payment","term loan","pl emi","personal loan emi","home loan emi","hl emi","vehicle loan emi","auto loan emi","loan recovery","loan deduction","loan debit","emi ecs","ecs emi","nach emi","ach emi","emi auto debit","loan auto debit","instalment","installment","loan a/c","loan ac","loan a/c no","emi debit"];
+        const emiLoanPaymentKeywords = ["emi","loan emi","emi payment","emi installment","emi instalment","loan repayment","loan installment","loan instalment","loan inst","loan payment","term loan","pl emi","personal loan emi","home loan emi","hl emi","vehicle loan emi","auto loan emi","loan recovery","loan deduction","loan debit","emi ecs","ecs emi","nach emi","ach emi","emi auto debit","loan auto debit","instalment","installment","loan a/c","loan ac","loan a/c no","emi debit","ach","ecs","nach","auto debit"];
 
         const loanCreditKeywords = ["loan disbursement","loan disb","loan credit","pl disb","personal loan disb","pl credit","hl disb","home loan disb","home loan credit","vehicle loan disb","auto loan disb","loan a/c credit","loan account credit","loan proceeds","loan amount credited","loan release","loan disburse","loan transfer credit","od limit credit","overdraft credit","cc limit credit","loan booking credit"];
 
@@ -80,6 +80,7 @@ function StepOne({reportData}) {
             monthwise[monthKey] = {
                 month: monthKey,
                 balance: balance,
+                avgBalanceCount:1,
                 opening: balance,
                 debit:debit,
                 credit:credit,
@@ -93,7 +94,7 @@ function StepOne({reportData}) {
                 averageBalance:balance,
                 emi_loan:0,
                 emiLoanCount:0,
-                balanceCount:1,
+                balanceCount:0,
                 chequeIssues:0,
                 chqIssuesCount:0,
                 chequeDeposit:0,
@@ -107,7 +108,6 @@ function StepOne({reportData}) {
                 lastDayBalance:balance,
                 avgDailyChangePercent: 0,
                 dailyChangeSum: 0,
-                dailyChangeCount: 0,
                 cashWithdrawal:0,
                 cashWithdrawalCount:0,
                 cashDeposit:0,
@@ -152,9 +152,9 @@ function StepOne({reportData}) {
             monthwise[monthKey].closing = balance
             monthwise[monthKey].netDebit += debit
             monthwise[monthKey].netCredit += credit
-            monthwise[monthKey].averageBalance += balance
-            monthwise[monthKey].balanceCount += 1
             monthwise[monthKey].opening = monthwise[monthKey].balance + monthwise[monthKey].debit - monthwise[monthKey].credit
+            monthwise[monthKey].averageBalance += balance;
+            monthwise[monthKey].avgBalanceCount += 1
 
             if (matchKeywords(description, chequeIssuesKeyword)) {
                 monthwise[monthKey].chequeIssues += debit;
@@ -281,7 +281,7 @@ function StepOne({reportData}) {
         
         monthwise[monthKey].minimumBalance = Math.min(monthwise[monthKey].minimumBalance, balance)
         monthwise[monthKey].maximumBalance = Math.max(monthwise[monthKey].maximumBalance, balance)
-        monthwise[monthKey].abb = monthwise[monthKey].firstDayBalance + monthwise[monthKey].fourteenthDayBalance + monthwise[monthKey].closing / 3
+        monthwise[monthKey].abb = (monthwise[monthKey].firstDayBalance + monthwise[monthKey].fourteenthDayBalance + monthwise[monthKey].closing)/3 
         monthwise[monthKey].owChqBouncePercentage = monthwise[monthKey].chqIssuesCount ? (monthwise[monthKey].owChqBounceCount/monthwise[monthKey].chqIssuesCount)*100 : 0
         monthwise[monthKey].iwChqBouncePercentage = monthwise[monthKey].chqDepositCount ? (monthwise[monthKey].iwChqBounceCount/monthwise[monthKey].chqDepositCount)*100 : 0
         monthwise[monthKey].cashDepositPercentage = monthwise[monthKey].creditCount ? (monthwise[monthKey].cashDepositCount/monthwise[monthKey].creditCount)*100 : 0
@@ -293,17 +293,15 @@ function StepOne({reportData}) {
 
             if (prevDayBalance !== null) {
 
-                const changePercent =
-                    ((balance - prevDayBalance) / prevDayBalance) * 100;
-
-                monthwise[monthKey].dailyChangeSum += changePercent;
-                monthwise[monthKey].dailyChangeCount += 1;
+                const changePercent = ((balance - prevDayBalance) / prevDayBalance) * 100;
+                monthwise[monthKey].dailyChangeSum = changePercent;
+                monthwise[monthKey].balanceCount += 1;
             }
 
             prevDay = dateKey;
         }
-
         prevDayBalance = balance;
+        console.log(monthwise[monthKey].averageBalance);
 
         if (prevDate !== null && prevDate !== dateKey) {
             const eodBalance = prevBalance
@@ -329,12 +327,7 @@ function StepOne({reportData}) {
     });
 
     Object.values(monthwise).forEach((m) => {
-
-        if (m.dailyChangeCount > 0) {
-            m.avgDailyChangePercent =
-                Number((m.dailyChangeSum / m.dailyChangeCount).toFixed(2));
-        }
-
+        
         if (m.eodCount > 0) {
             m.avgEODBalance = Number((m.sumEODBalance / m.eodCount).toFixed(2));
         }
@@ -489,7 +482,7 @@ function StepOne({reportData}) {
                                     <tr className="bg-neutral-primary border-b border-gray-200">
                                         <td className="px-3 py-2 text-[14px] -left-px sticky bg-white z-10">Average Balance</td>
                                         {result.map((m) => (
-                                            <td key={m.month} className="px-3 py-2 text-[14px] whitespace-nowrap text-right">₹ {((m.averageBalance || 0) / (m.balanceCount || 1)).toLocaleString("en-IN",{minimumFractionDigits: 2,maximumFractionDigits: 2})}</td>
+                                            <td key={m.month} className="px-3 py-2 text-[14px] whitespace-nowrap text-right">₹ {((m.averageBalance || 0) / (m.avgBalanceCount || 1)).toLocaleString("en-IN",{minimumFractionDigits: 2,maximumFractionDigits: 2})}</td>
                                         ))}
                                     </tr>
                                     <tr className="bg-neutral-primary border-b border-gray-200">
@@ -639,7 +632,7 @@ function StepOne({reportData}) {
                                     <tr className="bg-neutral-primary border-b border-gray-200">
                                         <td className="px-3 py-2 text-[14px] -left-px sticky bg-white z-10">Daily Balance Change %</td>
                                         {result.map((m) => (
-                                            <td key={m.month} className="px-3 py-2 text-[14px] whitespace-nowrap text-right">{m.avgDailyChangePercent.toFixed(2) ?? "-"} %</td>
+                                            <td key={m.month} className="px-3 py-2 text-[14px] whitespace-nowrap text-right">{m.dailyChangeSum.toFixed(2) ?? "-"} %</td>
                                         ))}
                                     </tr>
                                     <tr className="bg-neutral-primary border-b border-gray-200">

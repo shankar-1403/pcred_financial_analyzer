@@ -17,7 +17,8 @@ function StepThree({reportData}) {
         { field: "upi_app", headerName: "UPI App", width:200},
     ]
 
-    const extractRefNo = (desc = "") => {
+    const extractRefNo = (desc) => {
+        if (!desc) return null;
         const text = desc.toLowerCase();
 
         // Cheque numbers
@@ -43,10 +44,10 @@ function StepThree({reportData}) {
         return "-";
     };
 
-    function extractPartyName(description) {
-        if (!description) return null;
+    function extractPartyName(desc) {
+        if (!desc) return null;
 
-        let text = description.replace(/\s+/g, " ").trim();
+        let text = desc.replace(/\s+/g, " ").trim();
         text = text.replace(/chq paid to/gi, "");
         text = text.replace(/cheque paid to/gi, "");
         text = text.replace(/chq clr/gi, "");
@@ -116,7 +117,8 @@ function StepThree({reportData}) {
         return candidates.sort((a, b) => b.length - a.length)[0];
     }
 
-    const detectTxnType = (desc = "") => {
+    const detectTxnType = (desc) => {
+        if (!desc) return null;
         const text = desc.toLowerCase();
         // 1. UPI (most common)
         if (/\bupi\b/.test(text)) return "UPI";
@@ -145,7 +147,8 @@ function StepThree({reportData}) {
         return "OTHERS";
     };
 
-    const detectUpiApp = (desc = "") => {
+    const detectUpiApp = (desc) => {
+        if (!desc) return null;
         const text = desc.toLowerCase();
 
         if (!text.includes("upi")) return "-";
@@ -172,7 +175,7 @@ function StepThree({reportData}) {
     };
 
     const rows = reportData.transaction
-
+    
     const data = useMemo(() => {
         return rows.reduce((acc, item, index) => {
             const debit = Number(item.debit) || 0;
@@ -192,17 +195,17 @@ function StepThree({reportData}) {
             acc.push({
                 id: index + 1,
                 date: item.date || "-",
-                description: item.description || "-",
-                cheque_ref: extractRefNo(item.description) || "-",
-                counterparty: extractPartyName(item.description) || "-",
+                description: item?.description || "-",
+                cheque_ref: extractRefNo(item?.description) || "-",
+                counterparty: extractPartyName(item?.description) || "-",
                 debit: debit.toLocaleString("en-IN") || "",
                 credit: credit.toLocaleString("en-IN") || "",
                 balance: item.balance ? actualBalance.toLocaleString("en-IN",{minimumFractionDigits: 2,maximumFractionDigits: 2}) : "-",
                 computed_balance: calculatedBalance.toLocaleString("en-IN",{minimumFractionDigits: 2,maximumFractionDigits: 2}),
                 computed_balance_raw: calculatedBalance,
                 category: item.category || "-",
-                tags: detectTxnType(item.description) || "-",
-                upi_app: detectUpiApp(item.description) || "-",
+                tags: detectTxnType(item?.description) || "-",
+                upi_app: detectUpiApp(item?.description) || "-",
             });
 
             return acc;

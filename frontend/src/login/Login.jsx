@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useSnackbar } from '../components/SnackbarContext';
 import { setLocalStorageItem } from '../lib/storage';
-import authBg from '../assets/auth-bg.jpg';
 import {
   createSessionToken,
   SESSION_TOKEN_KEY,
@@ -83,11 +82,6 @@ function Login() {
   return (
     <>
       <div className="relative flex justify-center items-center h-screen">
-        <img
-          src={authBg}
-          alt="Abstract background"
-          className="absolute inset-0 w-full h-full object-cover"
-        />
         {loginTab ?
           <div className='p-8 rounded-2xl shadow-2xl w-100 relative'>
             <form ref={loginRef} onSubmit={formLogin} className='bg-white/60 rounded-4xl p-8 border border-white'>
