@@ -1,21 +1,46 @@
-import pdfplumber
+"""
+debug_hsbc.py — Run this locally to diagnose OCR output
+Usage: python debug_hsbc.py HSBC.pdf
+"""
+import re, sys, os, subprocess, tempfile, glob
+from PIL import Image
+import pytesseract
 
-with pdfplumber.open("d:/BankStats&GST3B/sib cc 2.pdf") as pdf:
-    for page_num, page in enumerate(pdf.pages[:2]):  # first 2 pages
+pdf_path = sys.argv[1] if len(sys.argv) > 1 else "d:\BankStats&GST3B\HSBC.pdf"
+
+# ── OCR first 2 pages ────────────────────────────────────────────────
+with tempfile.TemporaryDirectory() as tmpdir:
+    prefix = os.path.join(tmpdir, "pg")
+    subprocess.run(["pdftoppm", "-r", "200", pdf_path, prefix], check=True)
+    pages = sorted(glob.glob(f"{prefix}-*.ppm"))
+    print(f"Total pages rendered: {len(pages)}\n")
+
+    all_lines = []
+    for p in pages[:3]:  # first 3 pages only
+        img  = Image.open(p)
+        text = pytesseract.image_to_string(img, config="--psm 6")
+        lines = text.split("\n")
+        all_lines.extend(lines)
         print(f"\n{'='*60}")
-        print(f"PAGE {page_num + 1} — RAW TEXT LINES")
-        print('='*60)
-        text = page.extract_text() or ""
-        for i, line in enumerate(text.split("\n")[:50]):
-            print(f"{i:02d}: {repr(line)}")
+        print(f"PAGE: {p}")
+        print(f"{'='*60}")
+        for i, line in enumerate(lines):
+            print(f"{i:03d} | {repr(line)}")
 
-        print(f"\n--- PAGE {page_num + 1} TABLES ---")
-        tables = page.extract_tables(
-            {"vertical_strategy": "lines", "horizontal_strategy": "lines"}
-        )
-        print(f"Total tables found: {len(tables) if tables else 0}")
-        if tables:
-            for t_idx, table in enumerate(tables):
-                print(f"\nTable {t_idx} — {len(table)} rows x {len(table[0]) if table else 0} cols")
-                for r_idx, row in enumerate(table[:5]):  # first 5 rows of each table
-                    print(f"  Row {r_idx}: {row}")
+# ── Check what _TABLE_START actually sees ───────────────────────────
+print("\n\n" + "="*60)
+print("TABLE HEADER DETECTION CHECK")
+print("="*60)
+_TABLE_START = re.compile(
+    r'\b(Withdrawals|Deposits|Debit|Credit)\b.*\bBalance\b',
+    re.IGNORECASE,
+)
+_DATE_ANCHOR = re.compile(
+    r'^([O0]?\d[A-Z]{3}\d{4}|\d{2}[A-Z]{3}\d{4})\s+(.+)$'
+)
+for i, line in enumerate(all_lines):
+    s = line.strip()
+    if _TABLE_START.search(s):
+        print(f"[TABLE HEADER FOUND] line {i:03d}: {repr(s)}")
+    if _DATE_ANCHOR.match(s):
+        print(f"[DATE ANCHOR FOUND]  line {i:03d}: {repr(s)}")

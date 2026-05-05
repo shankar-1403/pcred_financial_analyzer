@@ -43,7 +43,10 @@ BANK_SIGNATURES = [
           r"bassein\s*catholic\s*co[\s-]*operative\s*bank|\bbacb\b|\bbccb\b"),
     ("sib", r"south\s*indian\s*bank|\bsibl\b|\bsib\b",
          r"south\s*indian\s*bank|\bsibl\b"),
-    ("tjsb", r"tjsb|tjsb\s*sahakari", r"tjsb\s*sahakari\s*bank"),     
+    ("tjsb", r"tjsb|tjsb\s*sahakari", r"tjsb\s*sahakari\s*bank"),
+    ("hsbc", r"hsbc", r"hsbc\s*bank|\bhsbc\b|hongkong\s+and\s+shanghai"),
+    ("dbs", r"dbs\s*bank|\bdbss\b", r"dbs\s*bank\s*india|\bdbss\b"),
+     
 
 
 
@@ -97,6 +100,10 @@ IFSC_BANK_MAP = [
     ("bccb", r"\bBACB[A-Z0-9]{7}\b"),       #Bassein Catholic Co-operative Bank
     ("sib", r"\bSIBL[A-Z0-9]{7}\b"),        #South Indian Bank
     ("tjsb", r"\bTJSB[A-Z0-9]{7}\b"),       #TJSB Bank
+    ("hsbc", r"\bHSBC[A-Z0-9]{7}\b"),       # HSBC Bank
+    ("dbs", r"\bDBSS[A-Z0-9]{7}\b"),        #DBS Bank
+
+
 
     
 ]
@@ -154,6 +161,18 @@ def detect_bank_from_text(lines):
         return "sib"
     if "tjsb" in header_wide_lower or "tjsb sahakari" in header_wide_lower:
         return "tjsb"
+    if "hsbc" in header_wide_lower \
+            or re.search(r"\bhsbc\b", header_wide_lower):
+        return "hsbc"
+    if "dbs bank" in header_wide_lower \
+            or re.search(r"\bdbss\b", header_wide_lower):
+        return "dbs"
+    if "general details" in header_wide_lower and (
+        "transactions list" in header_wide_lower or "drawing power" in header_wide_lower
+    ):
+        return "karnataka"
+
+
 
 
     # 1) IFSC in statement (IndusInd INDB checked before HDFC so we don't mis-id from txn text)
@@ -180,14 +199,6 @@ def detect_bank_from_text(lines):
     # 5) HDFC only if "hdfc bank" is in the statement header (first 25 lines), not in a txn
     if "hdfc bank" in header_only:
         return "hdfc"
-    
-    if re.search(r"general\s+details", header_wide, re.I) and \
-   re.search(r"\b(47\d{8}|10\d{8})\b", header_wide):
-        return "karnataka"
-    if re.search(r"\bKARB[A-Z0-9]{7}\b", header_wide):
-        return "karnataka"
-    if re.search(r"karnataka\s*bank|your\s+family\s+bank", header_wide, re.I):
-        return "karnataka"
 
     if "state bank of india" in header_wide_lower or "sbi" in header_wide_lower:
         return "sbi"

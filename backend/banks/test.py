@@ -5,7 +5,7 @@ import json
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from banks import parse_bank_statement
 
-pdf = "c:/Users/admin\Downloads/tjsb_sahkari_bank_removed.pdf"
+pdf = "d:\BankStats&GST3B\kbl2.pdf"
 
 data = parse_bank_statement(pdf)
 
