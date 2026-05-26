@@ -21,7 +21,7 @@ function StepOne({reportData}) {
         if (!item.date) return;
 
         // eslint-disable-next-line no-unused-vars
-        const [day, month, year] = item.date.split("-");
+        const [day, month, year] = item?.date?.split("-");
         const monthNames = ["Jan","Feb","Mar","Apr","May","June","July","Aug","Sept","Oct","Nov","Dec"];
         const chequeIssuesKeyword = ["chq paid","cheque paid","by chq","by chq no","chq no","cheque no","clg chq","clg-chq","brn-clg-chq","chq clr","cheque debit","chq debit","cheque withdrawal","chq withdrawal"];
 
@@ -335,8 +335,8 @@ function StepOne({reportData}) {
     });
     const result = Object.values(monthwise);
 
-    const firstDate = transactionDetails[0]?.date.split("-").join("/") || "-";
-    const lastDate = transactionDetails[transactionDetails.length - 1]?.date.split("-").join("/") || "-";
+    const firstDate = transactionDetails[0]?.date?.split("-").join("/") || "-";
+    const lastDate = transactionDetails[transactionDetails.length - 1]?.date?.split("-").join("/") || "-";
     return (
         <>
             <div className="flex gap-1">

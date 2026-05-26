@@ -40,7 +40,7 @@ function Users() {
     const fetchRole = async() => {
         try{
            const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/roles`)
-           setRoleData(response.data?.result)
+           setRoleData(response?.data?.result)
         } catch(error){
             console.log(error)
         } finally{
@@ -203,7 +203,7 @@ function Users() {
                                             <FormControl size='small' fullWidth>
                                                 <InputLabel id="role">Role</InputLabel>
                                                 <Select labelId="role" onChange={(e) => setRoleValue(e.target.value)} value={roleValue} id="role" name='role' label="Role">
-                                                    {roleData.map((data) => (
+                                                    {roleData?.map((data) => (
                                                         <MenuItem key={data._id} value={data._id}>{data.role_name}</MenuItem>
                                                     ))}
                                                 </Select>

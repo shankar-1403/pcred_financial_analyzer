@@ -84,8 +84,8 @@ function StepTwo({reportData}) {
 
     }, [transactionDetails])
 
-    const firstDate = transactionDetails[0]?.date.split("-").join("/") || "-";
-    const lastDate = transactionDetails[transactionDetails.length - 1]?.date.split("-").join("/") || "-";
+    const firstDate = transactionDetails[0]?.date?.split("-").join("/") || "-";
+    const lastDate = transactionDetails[transactionDetails.length - 1]?.date?.split("-").join("/") || "-";
 
     dayjs.extend(duration);
     dayjs.extend(relativeTime);
@@ -139,12 +139,13 @@ function StepTwo({reportData}) {
     let volatilitySum = 0
     let volatilityCount = 0
     transactionDetails.forEach((item) => {
+        console.log(item)
         const balance = Number(item.balance) || 0
         const debit = Number(item.debit) || 0
         const credit = Number(item.credit) || 0
         const description = (item.description || "").toLowerCase();
         // eslint-disable-next-line no-unused-vars
-        const [day, month, year] = item.date.split("-")
+        const [day, month, year] = item?.date.split("-")
 
         const monthNames = ["Jan","Feb","Mar","Apr","May","June","July","Aug","Sept","Oct","Nov","Dec"];
 

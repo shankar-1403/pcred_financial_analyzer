@@ -44,6 +44,7 @@ export default function Header() {
     navigate("/");
   }
 
+  const user_name = localStorage.getItem("name");
   const email_id = localStorage.getItem("auth");
   return (
     <>
@@ -65,8 +66,9 @@ export default function Header() {
                   exit={{ opacity: 0, y: 10 }}
                   className="absolute top-full mt-2 -right-30 w-60 -translate-x-1/2 rounded-xl bg-white shadow-xl overflow-hidden"
                 >   
-                  <div className="block px-4 py-2 text-sm font-semibold text-blue-950">
-                    <p>{email_id}</p>
+                  <div className="block px-4 py-2 text-center text-blue-950">
+                    <p className="text-lg font-bold">{user_name}</p>
+                    <p className="text-sm">{email_id}</p>
                   </div>
                   <Link to={"/"} className="block text-start px-4 py-2 text-base hover:bg-neutral-100 hover:text-[#E18126] text-blue-950 font-semibold">Change Password</Link>
                   <button onClick={handleLogout} className="block text-start px-4 py-2 text-base hover:bg-neutral-100 hover:text-[#E18126] text-red-600 font-bold w-full cursor-pointer">Logout</button>

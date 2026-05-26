@@ -92,7 +92,7 @@ def parse_table_rows(rows, mapping):
         }
         try:
             if "date" in mapping and len(row) > mapping["date"] and row[mapping["date"]]:
-                txn["date"] = str(row[mapping["date"]]).replace("\n", " ").strip()
+                txn["date"] = str(row[mapping["date"]]).replace("\n", " ").strip().split(" ")[0]
             if "description" in mapping and len(row) > mapping["description"]:
                 desc = row[mapping["description"]]
                 if desc:

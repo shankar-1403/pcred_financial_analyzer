@@ -83,9 +83,9 @@ function Login() {
     <>
       <div className="relative flex justify-center items-center h-screen">
         {loginTab ?
-          <div className='p-8 rounded-2xl shadow-2xl w-100 relative'>
-            <form ref={loginRef} onSubmit={formLogin} className='bg-white/60 rounded-4xl p-8 border border-white'>
-              <h1 className='text-2xl font-bold mb-8'>{loginTab ? 'Sign in to PCRED' : 'Sign Up to PCRED'}</h1>
+          <div className='p-8 rounded-2xl bg-white/60 shadow-2xl w-100 relative'>
+            <form ref={loginRef} onSubmit={formLogin} className='rounded-4xl border border-white'>
+              <h1 className='text-2xl font-bold text-center mb-8'>{loginTab ? 'Sign in' : 'Sign Up'}</h1>
               <div className="grid grid-cols-2 gap-7 mb-4">
                 <div className="col-span-2">
                   <TextField label='Email ID' name='email_id' fullWidth size='small'/>
@@ -93,25 +93,14 @@ function Login() {
                 <div className="col-span-2">
                   <TextField label='Password' name='password' fullWidth size='small'/>
                 </div>
-                <div className="col-span-1">
-                  <div className="flex items-center gap-2">
-                    <div>
-                        <input type="checkbox" id='communication_preference' name='communication_preference' className="w-3 h-3 accent-[#084b6f] focus:ring-[#084b6f] cursor-pointer"/>
-                    </div>
-                    <div>
-                        <label htmlFor='communication_preference' className='text-gray-700 text-sm cursor-pointer'>Remember me</label>
-                    </div>
-                  </div>
-                </div>
-                <div className="col-span-1 flex justify-end">
-                  <span className='text-blue-600 underline font-semibold text-right cursor-pointer text-sm'>Forgot Password</span>
-                </div>
                 <div className="col-span-2">
                   <button className='uppercase bg-[#084b6f] p-2 w-full rounded-lg text-white font-semibold cursor-pointer' type='submit'>{loginLoading?"Signing In":"Sign In"}</button>
                 </div>
               </div>
             </form>
-            <button onClick={()=>setLoginTab(false)} className='text-blue-600 text-sm font-semibold cursor-pointer underline'>Not registered? Sign Up</button>
+            <div className='flex justify-center items-center'>
+              <button onClick={()=>setLoginTab(false)} className='text-blue-600 text-xs font-semibold cursor-pointer underline'>Not registered? Sign Up</button>
+            </div>
           </div>
           :
           <div className='p-8 rounded-2xl shadow-2xl w-100'>

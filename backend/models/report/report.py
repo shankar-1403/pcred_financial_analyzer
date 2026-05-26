@@ -5,7 +5,7 @@ from fastapi import Form
 
 class report_details(BaseModel):
     report_name:str
-    reference_id:str
+    reference_id:Optional[str] = None
     status:str
     created_by:str
 
@@ -13,13 +13,11 @@ class report_details(BaseModel):
     def as_form(
         cls,
         report_name: str = Form(...),
-        reference_id: str = Form(...),
         status: str = Form(...),
         created_by: str = Form(...),
     ):
         return cls(
             report_name=report_name,
-            reference_id=reference_id,
             status=status,
             created_by=created_by,
         )

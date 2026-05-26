@@ -37,7 +37,8 @@ function NewReport() {
     const [needsPassword, setNeedsPassword] = useState(false);
     const [accordion, setAccordion] = useState([{ id: 1, open: true }]);
     const [loading, setLoading] = useState(false);
-    const [fileName, setFileName] = useState("")
+    const [fileName, setFileName] = useState("");
+    const [error, setError] = useState("");
 
     const handleFileChange = (e) => {
         const file = e.target.files[0];
@@ -111,6 +112,12 @@ function NewReport() {
 
     const handleSubmit = async(e) => {
         e.preventDefault();
+        const reportName = formRef.current?.elements?.namedItem("report_name")?.value?.trim();
+        if(!reportName || !selectedFile){
+            showSnackbar('Report Name and File is required', "error")
+            return;
+        }
+
         setLoading(true);
         setOpen(true);
         if (needsPassword && !password) {
@@ -204,7 +211,7 @@ function NewReport() {
                                                 <div className="grid grid-cols-4 gap-4 mb-4">
                                                     <div className="cols-span-1">
                                                         <FormControl size='small' fullWidth>
-                                                            <InputLabel id="pre_analysis_check">Pre-analysis check *</InputLabel>
+                                                            <InputLabel id="pre_analysis_check">Pre-analysis check</InputLabel>
                                                             <Select
                                                                 labelId="pre_analysis_check"
                                                                 id="pre_analysis_check"

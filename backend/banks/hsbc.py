@@ -1,51 +1,3 @@
-"""
-HSBC Bank statement parser — OCR-based (FINAL)
-===============================================
-
-HOW THE FRAMEWORK CALLS THIS MODULE  (from __init__.py):
-    lines = extract_text_from_pdf(pdf_path)        # garbled pdfplumber bytes
-    account_info = bank_module.extract_account_info(lines)   # NO pdf_path!
-    transactions = bank_module.extract_transactions(pdf_path)
-
-PROBLEM:
-    HSBC PDFs use obfuscated font encoding — pdfplumber produces garbled bytes.
-    extract_account_info() receives only those garbled lines with no pdf_path,
-    so it cannot fall back to OCR. All fields stay null.
-
-SOLUTION:
-    - extract_transactions(pdf_path) runs OCR and caches the clean lines in
-      _OCR_CACHE (keyed by pdf_path).
-    - extract_account_info(lines) detects garbled input, looks up the cache,
-      and uses the clean OCR lines instead.
-    - Because __init__.py calls extract_transactions AFTER extract_account_info,
-      we also make extract_account_info trigger OCR itself when cache is empty,
-      by detecting the pdf_path from the garbled lines is not available — so we
-      store the last pdf_path seen in extract_transactions and use a module-level
-      pending OCR approach.
-
-    SIMPLEST FIX: extract_account_info runs OCR if lines are garbled.
-    It finds the pdf_path by scanning sys.argv / frame locals — but that's
-    fragile. Instead: we use a module-level _LAST_PDF_PATH that
-    extract_transactions always sets, and extract_account_info checks.
-    Since __init__.py calls extract_account_info BEFORE extract_transactions,
-    we need to intercept at import time or detect the pdf differently.
-
-    ACTUAL SIMPLEST FIX THAT WORKS:
-    Monkey-patch: override extract_account_info to accept *args so it works
-    whether called as extract_account_info(lines) or extract_account_info(lines, pdf_path).
-    Then detect garbled input, and if garbled + no pdf_path, inspect the call
-    stack to find pdf_path.
-
-    CLEANEST FIX: Use a module-level OCR cache. extract_transactions stores
-    OCR lines. extract_account_info checks if lines are garbled and if so,
-    returns a deferred result that gets filled when extract_transactions runs.
-
-    ACTUALLY — the real cleanest fix:
-    Since __init__.py calls extract_account_info(lines) first, we need to get
-    pdf_path another way. We can inspect the Python call stack to get pdf_path
-    from parse_bank_statement's local variables.
-"""
-
 import re
 import os
 import sys
@@ -62,7 +14,6 @@ from .base import default_account_info
 BANK_KEY          = "hsbc"
 BANK_DISPLAY_NAME = "HSBC Bank"
 
-# Module-level OCR cache: pdf_path -> list[str]
 _OCR_CACHE: dict[str, list[str]] = {}
 
 
@@ -106,10 +57,6 @@ def _is_garbled(lines: list[str]) -> bool:
 
 
 def _get_pdf_path_from_stack() -> str | None:
-    """
-    Walk the Python call stack to find the pdf_path variable in the caller's
-    frame. __init__.py's parse_bank_statement() has pdf_path as a local.
-    """
     try:
         frame = inspect.currentframe()
         while frame is not None:
@@ -248,20 +195,7 @@ def _build_account_info(lines: list[str]) -> dict:
     return info
 
 
-# =============================================================================
-# PUBLIC API — matches the exact signatures __init__.py expects
-# =============================================================================
-
 def extract_account_info(lines: list[str]) -> dict:
-    """
-    Called by __init__.py as: bank_module.extract_account_info(lines)
-    where lines = garbled pdfplumber output for HSBC.
-
-    Strategy:
-      1. If lines look garbled, walk the call stack to find pdf_path.
-      2. Run OCR on that pdf_path (result is cached).
-      3. Extract account info from clean OCR lines.
-    """
     if _is_garbled(lines):
         pdf_path = _get_pdf_path_from_stack()
         if pdf_path:
